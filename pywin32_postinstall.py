@@ -112,8 +112,6 @@ except NameError:
         raise ValueError("%s is an unknown path ID" % (path_name,))
 
 def CopyTo(desc, src, dest):
-    print("sys.path:")
-    for p in sys.path: print ("  %s"%  p)
     import win32api, win32con
     while 1:
         try:
