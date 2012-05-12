@@ -202,6 +202,8 @@ True
 datetime.datetime(2011, 11, 5, 19, 0, tzinfo=TimeZoneInfo('Pacific Standard Time'))
 
 Make sure the converted time is correct.
+>>> tz_pac
+TimeZoneInfo('Pacific Standard Time')
 >>> dt_pac = dt_hi.astimezone(tz_pac)
 >>> dt_pac.timetuple()
 time.struct_time(tm_year=2011, tm_mon=11, tm_mday=5, tm_hour=19, tm_min=0, tm_sec=0, tm_wday=5, tm_yday=309, tm_isdst=1)
@@ -223,7 +225,32 @@ True
 True
 >>> (offset + dst_offset) == datetime.timedelta(hours=-7)
 True
+
+Test offsets that occur right at the DST changeover
+>>> datetime.datetime.utcfromtimestamp(1320570000).replace(
+...     tzinfo=TimeZoneInfo.utc()).astimezone(tz_pac)
+datetime.datetime(2011, 11, 6, 1, 0, tzinfo=TimeZoneInfo('Pacific Standard Time'))
+
+TimeZoneInfo now raises AmbiguousTimeError for ambiguous times
+==============================================================
+
+Is 1:15 the first one, or the one after clocks were set back?
+>>> ambiguous = datetime.datetime(2011, 11, 6, 1, 15)
+>>> est = TimeZoneInfo('Eastern Standard Time')
+>>> est.dst(ambiguous)
+Traceback (most recent call last):
+[...]
+AmbiguousTimeError: 2011-11-06 01:15:00
+>>> est.utcoffset(ambiguous)
+Traceback (most recent call last):
+[...]
+AmbiguousTimeError: 2011-11-06 01:15:00
+
+However, if we're converting from UTC, it's not ambiguous.
+>>> datetime.datetime(2011, 11, 6, 6, 0, tzinfo=TimeZoneInfo.utc()).astimezone(est)
+datetime.datetime(2011, 11, 6, 1, 0, tzinfo=TimeZoneInfo('Eastern Standard Time'))
 """
+
 from __future__ import generators
 
 __author__ = 'Jason R. Coombs <jaraco@jaraco.com>'
@@ -588,6 +615,19 @@ class TimeZoneInfo(datetime.tzinfo):
 		winInfo = self.getWinInfo(dt.year)
 		return winInfo.bias + winInfo.daylight_bias
 
+	def fromutc(self, dt):
+		if dt.tzinfo is not self:
+			raise ValueError("tzinfo is not self")
+		# calculate the local time using the standard offset
+		tz_std = TimeZoneInfo(self.timeZoneName, fix_standard_time=True)
+		delta = tz_std.utcoffset(dt)
+		dt += delta
+		try:
+			dt += self.dst(dt)
+		except AmbiguousTimeError:
+			pass
+		return dt
+
 	def utcoffset(self, dt):
 		"Calculates the utcoffset according to the datetime.tzinfo spec"
 		if dt is None: return
@@ -605,22 +645,36 @@ class TimeZoneInfo(datetime.tzinfo):
 		return -result
 
 	def _inDaylightSavings(self, dt):
+		dt = dt.replace(tzinfo=None)
+		winInfo = self.getWinInfo(dt.year)
 		try:
 			dstStart = self.GetDSTStartTime(dt.year)
 			dstEnd = self.GetDSTEndTime(dt.year)
 
+			# at the end of DST, when clocks are moved back, there's a period
+			#  of daylight_bias where it's ambiguous whether we're in DST or
+			#  not.
+			dstEndAdj = dstEnd + winInfo.daylight_bias
+
+			# the same thing could theoretically happen at the start of DST
+			#  if there's a standard_bias (which I suspect is always 0).
+			dstStartAdj = dstStart + winInfo.standard_bias
+
+			if dstEndAdj <= dt < dstEnd or dstStartAdj <= dt < dstStart:
+				raise AmbiguousTimeError(dt)
+
 			if dstStart < dstEnd:
-				inDaylightSavings = dstStart <= dt.replace(tzinfo=None) < dstEnd
+				in_dst = dstStartAdj <= dt < dstEndAdj
 			else:
 				# in the southern hemisphere, daylight savings time
 				#  typically ends before it begins in a given year.
-				inDaylightSavings = not (dstEnd < dt.replace(tzinfo=None) <= dstStart)
+				in_dst = not (dstEndAdj < dt <= dstStartAdj)
 		except ValueError:
 			# there was an error parsing the time zone, which is normal when a
 			#  start and end time are not specified.
-			inDaylightSavings = False
+			in_dst = False
 
-		return inDaylightSavings
+		return in_dst
 
 	def GetDSTStartTime(self, year):
 		"Given a year, determines the time when daylight savings time starts"
@@ -786,6 +840,9 @@ GetTimeZoneNames = deprecated(TimeZoneInfo._get_time_zone_key_names, 'GetTimeZon
 GetIndexedTimeZoneNames = deprecated(TimeZoneInfo._get_indexed_time_zone_keys, 'GetIndexedTimeZoneNames')
 GetSortedTimeZoneNames = deprecated(TimeZoneInfo.get_sorted_time_zone_names, 'GetSortedTimeZoneNames')
 # end backward compatibility
+
+class AmbiguousTimeError(Exception):
+	pass
 
 def utcnow():
 	"""
