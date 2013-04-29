@@ -63,6 +63,32 @@ generates Windows .hlp files.
 #include "PyIShellItem2.h"
 #include "PyIShellItemArray.h"
 #include "PyINameSpaceTreeControl.h"
+#include "PyIEnumShellItems.h"
+#include "PyIKnownFolder.h"
+#include "PyIKnownFolderManager.h"
+#include "PyITaskbarList.h"
+#include "PyIFileOperation.h"
+#include "PyIFileOperationProgressSink.h"
+#include "PyITransferSource.h"
+#include "PyITransferDestination.h"
+#include "PyITransferAdviseSink.h"
+#include "PyIShellItemResources.h"
+#include "PyIEnumResources.h"
+
+#include "PyIRelatedItem.h" // Next 4 all derived from IRelatedItem
+#include "PyIDisplayItem.h"
+#include "PyICurrentItem.h"
+#include "PyITransferMediumItem.h"
+#include "PyIIdentityName.h"
+
+// These Require Windows 7 SDK to build
+#include "PyIEnumObjects.h"
+#include "PyIApplicationDocumentLists.h"
+#include "PyIApplicationDestinations.h"
+#include "PyIObjectArray.h"
+#include "PyIObjectCollection.h"
+#include "PyICustomDestinationList.h"
+#include "PyIShellLibrary.h"
 
 #include "PythonCOMRegister.h" // For simpler registration of IIDs etc.
 
@@ -163,18 +189,18 @@ static PFNSHCreateShellItem pfnSHCreateShellItem = NULL;
 typedef HRESULT (WINAPI *PFNSHOpenFolderAndSelectItems)(PCIDLIST_ABSOLUTE,UINT,PCUITEMID_CHILD_ARRAY,DWORD);
 static PFNSHOpenFolderAndSelectItems pfnSHOpenFolderAndSelectItems = NULL;
 
-void PyShell_FreeMem(void *p)
-{
-	// NOTE: CoTaskMemFree documents NULL is an OK param - so we no
-	// longer check for that - and given the new 'propsys' module, these
-	// are screaming to become macros (and/or die!)
-	CoTaskMemFree(p);
-}
+typedef HRESULT (WINAPI *PFNSHCreateStreamOnFileEx)(LPCWSTR, DWORD, DWORD, BOOL, IStream *, IStream **);
+static PFNSHCreateStreamOnFileEx pfnSHCreateStreamOnFileEx = NULL;
 
-void *PyShell_AllocMem(ULONG cb)
-{
-	return CoTaskMemAlloc(cb);
-}
+typedef HRESULT (WINAPI *PFNSetCurrentProcessExplicitAppUserModelID)(WCHAR *);
+static  PFNSetCurrentProcessExplicitAppUserModelID pfnSetCurrentProcessExplicitAppUserModelID;
+
+typedef HRESULT (WINAPI *PFNGetCurrentProcessExplicitAppUserModelID)(WCHAR **);
+static  PFNGetCurrentProcessExplicitAppUserModelID pfnGetCurrentProcessExplicitAppUserModelID;
+
+typedef HRESULT (WINAPI *PFNSHParseDisplayName)(LPCWSTR, IBindCtx *, PIDLIST_ABSOLUTE *, SFGAOF, SFGAOF *);
+static  PFNSHParseDisplayName pfnSHParseDisplayName;
+
 
 // Some magic hackery macros :-)
 #define _ILSkip(pidl, cb)       ((LPITEMIDLIST)(((BYTE*)(pidl))+cb))
@@ -244,11 +270,11 @@ PyObject *PyObject_FromPIDL(LPCITEMIDLIST pidl, BOOL bFreeSystemPIDL)
 		ret = NULL;
 	}
 	if (bFreeSystemPIDL)
-		PyShell_FreeMem( (void *)pidl_free);
+		CoTaskMemFree( (void *)pidl_free);
 	return ret;
 }
 
-// @object PyIDL|A Python representation of an IDL.  Implemented as list of Python strings.
+// @object PyIDL|A Python representation of an IDL.  Implemented as a sequence of Python strings.
 BOOL PyObject_AsPIDL(PyObject *ob, LPITEMIDLIST *ppidl, BOOL bNoneOK /*= FALSE*/, UINT *pcb /* = NULL */)
 {
 	if (ob==Py_None) {
@@ -257,16 +283,21 @@ BOOL PyObject_AsPIDL(PyObject *ob, LPITEMIDLIST *ppidl, BOOL bNoneOK /*= FALSE*/
 			return FALSE;
 		}
 		*ppidl = NULL;
+		if (pcb)
+			*pcb = 0;
 		return TRUE;
 	}
 	if (!PySequence_Check(ob) || PyString_Check(ob)) {
 		PyErr_Format(PyExc_TypeError, "Only sequences (but not strings) are valid ITEMIDLIST objects (got %s).", ob->ob_type->tp_name);
 		return FALSE;
 	}
-	UINT num_items = (unsigned)PySequence_Length(ob);
+	Py_ssize_t num_items = PySequence_Length(ob);
+	// SHITEMID.cb is a ushort, and includes its own size - make sure size of python string doesn't overflow it
+	Py_ssize_t cbMax = USHRT_MAX - sizeof((*ppidl)->mkid.cb);
+
 	// first pass over the sequence to determine number of bytes.
-	UINT cbTotal = sizeof((*ppidl)->mkid.cb);	// Null terminator
-	UINT i;
+	size_t cbTotal = sizeof((*ppidl)->mkid.cb);	// Null terminator
+	Py_ssize_t i;
 	for (i=0;i<num_items;i++) {
 		PyObject *sub = PySequence_GetItem(ob, i);
 		if (!sub)
@@ -276,11 +307,16 @@ BOOL PyObject_AsPIDL(PyObject *ob, LPITEMIDLIST *ppidl, BOOL bNoneOK /*= FALSE*/
 			Py_DECREF(sub);
 			return FALSE;
 		}
+		if (PyString_GET_SIZE(sub) > cbMax){
+			PyErr_Format(PyExc_ValueError, "Python string exceeds maximum size for a PIDL item");
+			Py_DECREF(sub);
+			return FALSE;
+		}
 		cbTotal += sizeof((*ppidl)->mkid.cb) + PyString_GET_SIZE(sub);
 		Py_DECREF(sub);
 	}
 	// Now again, filling our buffer.
-	void *buf = PyShell_AllocMem( cbTotal );
+	void *buf = CoTaskMemAlloc( cbTotal );
 	if (!buf) {
 		PyErr_NoMemory();
 		return FALSE;
@@ -290,25 +326,28 @@ BOOL PyObject_AsPIDL(PyObject *ob, LPITEMIDLIST *ppidl, BOOL bNoneOK /*= FALSE*/
 		PyObject *sub = PySequence_GetItem(ob, i);
 		if (!sub)
 			return FALSE;
+		/* Don't need to check this again, called holding GIL so nothing can modify the sequence
 		if (!PyString_Check(sub)) {
 			PyErr_Format(PyExc_TypeError, "ITEMIDLIST sub-items must be strings (got %s)", sub->ob_type->tp_name);
 			Py_DECREF(sub);
 			return FALSE;
 		}
-		pidl->mkid.cb = PyString_GET_SIZE(sub) + sizeof(pidl->mkid.cb);
+		*/
+		pidl->mkid.cb = (USHORT)PyString_GET_SIZE(sub) + sizeof(pidl->mkid.cb);
 		memcpy(pidl->mkid.abID, PyString_AS_STRING(sub), PyString_GET_SIZE(sub));
 		Py_DECREF(sub);
 		pidl = _ILNext(pidl);
 	}
 	pidl->mkid.cb = 0;
 	*ppidl = (LPITEMIDLIST)buf;
-	if (pcb) *pcb = cbTotal;
+	// ??? Should change pcb to a size_t, only place it's used is CIDA conversion ???
+	if (pcb) *pcb = (UINT)cbTotal;
 	return TRUE;
 }
 
 void PyObject_FreePIDL( LPCITEMIDLIST pidl )
 {
-	PyShell_FreeMem( (void *)pidl);
+	CoTaskMemFree( (void *)pidl);
 }
 
 BOOL PyObject_AsPIDLArray(PyObject *obSeq, UINT *pcidl, LPCITEMIDLIST **ret)
@@ -483,54 +522,53 @@ done:
 	return ret;
 }
 
+void PyObject_FreeTBBUTTONs(TBBUTTON *p, UINT nButtons)
+{
+	for (UINT i=0;i<nButtons;i++)
+		PyWinObject_FreeResourceId((TCHAR *)p[i].iString);
+	free(p);
+}
+
 BOOL PyObject_AsTBBUTTONs( PyObject *ob, TBBUTTON **ppButtons, UINT *pnButtons )
 {
 	*ppButtons = NULL;
-	if (ob==Py_None) {
-		*pnButtons = 0;
+	*pnButtons = 0;
+	if (ob==Py_None)
 		return TRUE;
-	}
-	if (!PySequence_Check(ob)) {
-		PyErr_Format(PyExc_TypeError, "TBBUTTONs must be a sequence (got %s)", ob->ob_type->tp_name);
+	DWORD nButtons;
+	TmpPyObject obbuttons = PyWinSequence_Tuple(ob, &nButtons);
+	if (obbuttons == NULL)
 		return FALSE;
-	}
-	UINT seqsize = PySequence_Size(ob);
-	UINT i;
-	if (seqsize == -1)
-		return FALSE;
-	*ppButtons = (TBBUTTON *)malloc(seqsize * sizeof(TBBUTTON));
+	*ppButtons = (TBBUTTON *)malloc(nButtons * sizeof(TBBUTTON));
 	if (!*ppButtons) {
 		PyErr_NoMemory();
 		return FALSE;
 	}
-	memset(*ppButtons, 0, seqsize * sizeof(TBBUTTON));
-	for (i=0;i<seqsize;i++) {
+	BOOL ok;
+	memset(*ppButtons, 0, nButtons * sizeof(TBBUTTON));
+	for (UINT i=0; i<nButtons; i++) {
 		TBBUTTON *pThis = (*ppButtons)+i;
-		PyObject *sub = PySequence_GetItem(ob, i);
-		if (!sub) goto failed;
-		int ok = PyArg_ParseTuple(sub, "iiBB|li",
+		PyObject *sub = PyTuple_GET_ITEM((PyObject *)obbuttons, i);
+		PyObject *obdata, *obstring;
+		ok = PyArg_ParseTuple(sub, "iiBB|OO",
 							 &pThis->iBitmap,
 							 &pThis->idCommand,
 							 &pThis->fsState,
 							 &pThis->fsStyle,
-							 &pThis->dwData,
-							 &pThis->iString);
-		Py_DECREF(sub);
-		if (!ok) goto failed;
+							 &obdata,
+							 &obstring)
+			&&PyWinLong_AsVoidPtr(obdata, (void **)&pThis->dwData)
+			&&PyWinObject_AsResourceId(obstring, (TCHAR **)&pThis->iString);
+		if (!ok)
+			break;
 	}
-	*pnButtons = seqsize;
-	return TRUE;
-failed:
-	if (*ppButtons)
-		free(*ppButtons);
-	*ppButtons = NULL;
-	return FALSE;
-}
-
-void PyObject_FreeTBBUTTONs(TBBUTTON *p)
-{
-	if (p)
-		free(p);
+	if (!ok){
+		PyObject_FreeTBBUTTONs(*ppButtons, nButtons);
+		*ppButtons = NULL;
+	}
+	else
+		*pnButtons = nButtons;
+	return ok;
 }
 
 PyObject *PyWinObject_FromRESOURCESTRING(LPCSTR str)
@@ -559,27 +597,22 @@ BOOL PyObject_AsCMINVOKECOMMANDINFO(PyObject *ob, CMINVOKECOMMANDINFO *pci)
 	                                 &pci->nShow, &pci->dwHotKey, &obhIcon))
 		return FALSE;
 	if (!PyWinObject_AsHANDLE(obhwnd, (HANDLE *)&pci->hwnd))
-		return NULL;
-	if (!PyWinObject_AsHANDLE(obhIcon, (HANDLE *)&pci->hIcon))
-		return NULL;
-	if (PyString_Check(obVerb)) {
-		pci->lpVerb = PyString_AsString(obVerb);
-	} else if (PyInt_Check(obVerb)) {
-		pci->lpVerb = MAKEINTRESOURCEA(PyInt_AsLong(obVerb));
-	} else {
-		PyErr_Format(PyExc_TypeError, "verb must be an int or string");
 		return FALSE;
-	}
+	if (!PyWinObject_AsHANDLE(obhIcon, (HANDLE *)&pci->hIcon))
+		return FALSE;
+	if (!PyWinObject_AsResourceIdA(obVerb, (char **)&pci->lpVerb))
+		return FALSE;
 	return TRUE;
 }
 void PyObject_FreeCMINVOKECOMMANDINFO( CMINVOKECOMMANDINFO *pci )
 {
+	PyWinObject_FreeResourceId((char *)pci->lpVerb);
 }
 
 static PyObject *PyString_FromMaybeNullString(const char *sz)
 {
 	if (sz)
-		return PyString_FromString(sz);
+		return PyWinCoreString_FromString(sz);
 	Py_INCREF(Py_None);
 	return Py_None;
 }
@@ -608,26 +641,10 @@ PyObject *PyObject_FromCMINVOKECOMMANDINFO(const CMINVOKECOMMANDINFO *pci)
 	                                 pci->nShow, pci->dwHotKey, PyWinLong_FromHANDLE(pci->hIcon));
 }
 
-BOOL PyObject_AsSTRRET( PyObject *ob, STRRET &out )
-{
-	if (PyInt_Check(ob)) {
-		out.uType = STRRET_OFFSET;
-		out.uOffset = PyInt_AsLong(ob);
-		return TRUE;
-	}
-	if (PyString_Check(ob)) {
-		out.uType = STRRET_CSTR;
-		strncpy(out.cStr, PyString_AsString(ob), MAX_PATH);
-		return TRUE;
-	}
-	PyErr_Format(PyExc_TypeError, "Can't convert objects of type '%s' to STRRET", ob->ob_type->tp_name);
-	return FALSE;
-}
-
 void PyObject_FreeSTRRET(STRRET &s)
 {
 	if (s.uType==STRRET_WSTR) {
-		PyShell_FreeMem(s.pOleStr);
+		CoTaskMemFree(s.pOleStr);
 		s.pOleStr = NULL;
 	}
 }
@@ -635,8 +652,6 @@ void PyObject_FreeSTRRET(STRRET &s)
 PyObject *PyObject_FromSTRRET(STRRET *ps, ITEMIDLIST *pidl, BOOL bFree)
 {
 	if (ps==NULL) {
-		if (bFree)
-			PyObject_FreeSTRRET(*ps);
 		Py_INCREF(Py_None);
 		return Py_None;
 	}
@@ -1038,8 +1053,6 @@ done:
 	return ok;
 }
 
-#if (PY_VERSION_HEX >= 0x02030000) // PyGILState only in 2.3+
-
 // Callback for BrowseForFolder
 struct PyCallback {
 	PyObject *fn;
@@ -1081,7 +1094,33 @@ done:
 	return rc;
 }
 
-#endif // PY_VERSION_HEX
+// @object PySHELL_ITEM_RESOURCE|Tuple of (<o PyIID>, str) that identifies a shell resource
+BOOL PyWinObject_AsSHELL_ITEM_RESOURCE(PyObject *ob, SHELL_ITEM_RESOURCE *psir)
+{
+	GUID typ;
+	TmpWCHAR name;
+	PyObject *obname;
+	DWORD namelen;
+	const DWORD max_namelen = sizeof(psir->szName) / sizeof psir->szName[0];
+	if (!PyArg_ParseTuple(ob, "O&O", PyWinObject_AsIID, &typ, &obname))
+		return FALSE;
+	if (!PyWinObject_AsWCHAR(obname, &name, FALSE, &namelen))
+		return FALSE;
+	if (namelen > max_namelen - 1){
+		PyErr_SetString(PyExc_ValueError, "Resource name too long");
+		return FALSE;
+		}
+	wcsncpy(psir->szName, name, namelen);
+	return TRUE;
+}
+
+PyObject *PyWinObject_FromSHELL_ITEM_RESOURCE(const SHELL_ITEM_RESOURCE *psir)
+{
+	return Py_BuildValue("NN",
+		PyWinObject_FromIID(psir->guidType),
+		PyWinObject_FromWCHAR(psir->szName));
+}
+
 //////////////////////////////////////////////////////////////
 //
 // The methods
@@ -1101,9 +1140,7 @@ static PyObject *PySHBrowseForFolder( PyObject *self, PyObject *args)
 	TCHAR retPath[MAX_PATH];
 	bi.pszDisplayName = retPath;
 	LPITEMIDLIST pl = NULL;
-#if (PY_VERSION_HEX >= 0x02030000) // PyGILState only in 2.3+
 	PyCallback pycb;
-#endif
 
 	if(!PyArg_ParseTuple(args, "|OOOlOO:SHBrowseForFolder",
 			&obhwndOwner, // @pyparm <o PyHANDLE>|hwndOwner|None|Parent window for the dialog box, can be None
@@ -1116,7 +1153,6 @@ static PyObject *PySHBrowseForFolder( PyObject *self, PyObject *args)
 	if (!PyWinObject_AsHANDLE(obhwndOwner, (HANDLE *)&bi.hwndOwner))
 		return NULL;
 	if (obcb != Py_None) {
-#if (PY_VERSION_HEX >= 0x02030000) // PyGILState only in 2.3+
 		if (!PyCallable_Check(obcb)) {
 			PyErr_SetString(PyExc_TypeError, "Callback item must None or a callable object");
 			goto done;
@@ -1125,12 +1161,6 @@ static PyObject *PySHBrowseForFolder( PyObject *self, PyObject *args)
 		pycb.data = obcbparam;
 		bi.lParam = (LPARAM)&pycb;
 		bi.lpfn = PyBrowseCallbackProc;
-#else // PY_VERSION_HEX
-		PyErr_SetString(PyExc_NotImplementedError,
-						"Callbacks can only be specified in Python 2.3+");
-		return NULL;
-#endif // PY_VERSION_HEX
-		
 	} // else bi.lParam/lpfn remains 0
 	if (!PyObject_AsPIDL(obPIDL, (LPITEMIDLIST *)&bi.pidlRoot, TRUE))
 		goto done;
@@ -1424,27 +1454,160 @@ static PyObject *PySHGetFolderLocation(PyObject *self, PyObject *args)
 }
 
 // @pymethod |shell|SHAddToRecentDocs|Adds a document to the shell's list of recently used documents or clears all documents from the list. The user gains access to the list through the Start menu of the Windows taskbar.
+// @comm On Windows 7, the entry is also added to the application's jump list.
 // @pyseeapi SHAddToRecentDocs
 // @comm The underlying API function has no return value, and therefore no way to indicate failure.
 static PyObject *PySHAddToRecentDocs(PyObject *self, PyObject *args)
 {
 	int flags;
-	void *whatever;
-	Py_ssize_t cb;  // not used, but must accept strings containing NULL bytes
-	if(!PyArg_ParseTuple(args, "iz#:SHAddToRecentDocs",
-			&flags, // @pyparm int|flags||Value from SHARD enum indicating type of data passed in second arg
-			&whatever,	// @pyparm string/buffer|data||A file system path or PIDL (see <om shell.PIDLAsString>) identifying a shell object.
-			&cb))		//	In Windows 7, some flags require a buffer containing one of various structs.
-						//	Pass None to clear list of recent documents.
+	PyObject *ob;
+	if(!PyArg_ParseTuple(args, "iO:SHAddToRecentDocs",
+			&flags, // @pyparm int|Flags||Value from SHARD enum indicating how the item is identified.
+			&ob))	// @pyparm object|data||Type of input is determined by the SHARD_* flag.  Use None to clear recent items list.
 		return NULL;
 
-	PY_INTERFACE_PRECALL;
-	SHAddToRecentDocs(flags, whatever);
-	PY_INTERFACE_POSTCALL;
+	if (ob == Py_None){
+		PY_INTERFACE_PRECALL;
+		SHAddToRecentDocs(flags, NULL);
+		PY_INTERFACE_POSTCALL;
+		Py_INCREF(Py_None);
+		return Py_None;
+		}
+	switch(flags){
+		// @flagh Flags|Type of input
+		case SHARD_PATHA:{
+			// @flag SHARD_PATHA|String containing a file path
+			char *buf;
+			if (!PyWinObject_AsString(ob, &buf, FALSE))
+				return NULL;
+			PY_INTERFACE_PRECALL;
+			SHAddToRecentDocs(flags, buf);
+			PY_INTERFACE_POSTCALL;
+			PyWinObject_FreeString(buf);
+			break;
+			}
+		case SHARD_PATHW:{
+			// @flag SHARD_PATHW|String containing a file path
+			WCHAR *buf;
+			if (!PyWinObject_AsWCHAR(ob, &buf, FALSE))
+				return NULL;
+			PY_INTERFACE_PRECALL;
+			SHAddToRecentDocs(flags, buf);
+			PY_INTERFACE_POSTCALL;
+			PyWinObject_FreeWCHAR(buf);
+			break;
+			}
+		case SHARD_PIDL:{
+			// @flag SHARD_PIDL|<o PyIDL>, or a buffer containing a PIDL (see <om shell.PIDLAsString>)
+			LPITEMIDLIST buf;
+			bool freepidl = FALSE;
+			if (PyObject_AsPIDL(ob, &buf, FALSE))
+				freepidl = TRUE;
+			else{
+				// Also accept a string containing a contiguous PIDL for backward compatibility
+				PyErr_Clear();
+				DWORD buflen;
+				if (!PyWinObject_AsReadBuffer(ob, (void **)&buf, &buflen, FALSE))
+					return NULL;
+				}
+			PY_INTERFACE_PRECALL;
+			SHAddToRecentDocs(flags, buf);
+			PY_INTERFACE_POSTCALL;
+			if (freepidl)
+				PyObject_FreePIDL(buf);
+			break;
+			}
+#if WINVER >= 0x0601
+		// Introduced in Windows 7
+		case SHARD_APPIDINFO:{
+			// @flag SHARD_APPIDINFO|Tuple of (<o PyIShellItem>, str), where str is an AppID
+			SHARDAPPIDINFO buf;
+			TmpWCHAR appid;
+			PyObject *obitem, *obappid;
+			if (!PyArg_ParseTuple(ob, "OO;SHARDAPPIDINFO must be a tuple of (<o PyIShellItem>, str)",
+				&obitem, &obappid))
+				return NULL;
+			if (!PyWinObject_AsWCHAR(obappid, &appid, FALSE))
+				return NULL;
+			buf.pszAppID = appid;
+			if (!PyCom_InterfaceFromPyObject(obitem, IID_IShellItem, (void **)&buf.psi, FALSE))
+				return NULL;
+			PY_INTERFACE_PRECALL;
+			SHAddToRecentDocs(flags, &buf);
+			buf.psi->Release();
+			PY_INTERFACE_POSTCALL;
+			break;
+			}
+		case SHARD_APPIDINFOIDLIST:{
+			// @flag SHARD_APPIDINFOIDLIST|Tuple of (<o PyIDL>, str), where str is an AppID
+			SHARDAPPIDINFOIDLIST buf;
+			LPITEMIDLIST pidl;
+			TmpWCHAR appid;
+			PyObject *obitem, *obappid;
+			if (!PyArg_ParseTuple(ob, "OO;SHARDAPPIDINFOIDLIST must be tuple of (<o PyIDL>, str)",
+				&obitem, &obappid))
+				return NULL;
+			if (!PyWinObject_AsWCHAR(obappid, &appid, FALSE))
+				return NULL;
+			buf.pszAppID = appid;
+			if (!PyObject_AsPIDL(obitem, &pidl, FALSE))
+				return NULL;
+			buf.pidl = pidl;
+			PY_INTERFACE_PRECALL;
+			SHAddToRecentDocs(flags, &buf);
+			PY_INTERFACE_POSTCALL;
+			PyObject_FreePIDL(pidl);
+			break;
+			}
+		case SHARD_LINK:{
+			// @flag SHARD_LINK|<o PyIShellLink>
+			IShellLink *buf;
+			if (!PyCom_InterfaceFromPyObject(ob, IID_IShellLink, (void **)&buf, FALSE))
+				return NULL;
+			PY_INTERFACE_PRECALL;
+			SHAddToRecentDocs(flags, buf);
+			buf->Release();
+			PY_INTERFACE_POSTCALL;
+			break;
+			}
+		case SHARD_APPIDINFOLINK:{
+			// @flag SHARD_APPIDINFOLINK|Tuple of (<o PyIShellLink>, str) where str is an AppID
+			SHARDAPPIDINFOLINK buf;
+			TmpWCHAR appid;
+			PyObject *obitem, *obappid;
+			if (!PyArg_ParseTuple(ob, "OO;SHARDAPPIDINFOLINK must be a tuple of (<o PyIShellLink>, str)",
+				&obitem, &obappid))
+				return NULL;
+			if (!PyWinObject_AsWCHAR(obappid, &appid, FALSE))
+				return NULL;
+			buf.pszAppID = appid;
+			if (!PyCom_InterfaceFromPyObject(obitem, IID_IShellLink, (void **)&buf.psl, FALSE))
+				return NULL;
+			PY_INTERFACE_PRECALL;
+			SHAddToRecentDocs(flags, &buf);
+			buf.psl->Release();
+			PY_INTERFACE_POSTCALL;
+			break;
+			}
+		case SHARD_SHELLITEM:{
+			// @flag SHARD_SHELLITEM|<o PyIShellItem>
+			IShellItem *buf;
+			if (!PyCom_InterfaceFromPyObject(ob, IID_IShellItem, (void **)&buf, FALSE))
+				return NULL;
+			PY_INTERFACE_PRECALL;
+			SHAddToRecentDocs(flags, buf);
+			buf->Release();
+			PY_INTERFACE_POSTCALL;
+			break;
+			}
+#endif // WINVER
+		default:
+			PyErr_SetString(PyExc_NotImplementedError, "SHARD value not supported");
+			return NULL;
+	}
 	Py_INCREF(Py_None);
 	return Py_None;
 }
-
 
 // @pymethod |shell|SHEmptyRecycleBin|Empties the recycle bin on the specified drive.
 static PyObject *PySHEmptyRecycleBin(PyObject *self, PyObject *args)
@@ -1839,7 +2002,7 @@ static PyObject *PyPIDLAsString(PyObject *self, PyObject *args)
 	if (!PyObject_AsPIDL(obPIDL, &ppidls, FALSE, &cb))
 		return NULL;
 	PyObject *ret = PyString_FromStringAndSize((char *)ppidls, cb);
-	PyShell_FreeMem(ppidls);
+	CoTaskMemFree(ppidls);
 	return ret;
 }
 
@@ -2627,11 +2790,7 @@ done:
 		PyObject_FreePIDL(parent);
 	if (children)
 		PyObject_FreePIDLArray(nchildren, children);
-	if (do_inner) {
-		PY_INTERFACE_PRECALL;
-		do_inner->Release();
-		PY_INTERFACE_POSTCALL;
-	}
+	PYCOM_RELEASE(do_inner);
 	return ret;
 }
 
@@ -2683,31 +2842,30 @@ static PyObject *PySHGetNameFromIDList(PyObject *self, PyObject *args)
 	PyObject *ret = NULL;
 	PyObject *obpidl;
 	SIGDN flags;
-	WCHAR *strret = NULL;
+	WCHAR *name = NULL;
 	PIDLIST_ABSOLUTE pidl = NULL;
 	if(!PyArg_ParseTuple(args, "Ok:SHGetNameFromIDList", &obpidl, &flags))
 		return NULL;
-	// @pyparm PIDL|parent||
-	// @pyparm int|flags||
+	// @pyparm <o PyIDL>|pidl||Absolute ID list of the item
+	// @pyparm int|flags||Type of name to return, shellcon.SIGDN_*
 	if (!PyObject_AsPIDL(obpidl, &pidl))
 		goto done;
 	HRESULT hr;
 	{
 	PY_INTERFACE_PRECALL;
-	hr = (*pfnSHGetNameFromIDList)(pidl, flags, &strret);
+	hr = (*pfnSHGetNameFromIDList)(pidl, flags, &name);
 	PY_INTERFACE_POSTCALL;
 	}
 	if (FAILED(hr)) {
 		PyCom_BuildPyException(hr);
 		goto done;
 	}
-	// ref on view consumed by ret object.
-	ret = PyWinObject_FromWCHAR(strret);
+	ret = PyWinObject_FromWCHAR(name);
 done:
 	if (pidl)
 		PyObject_FreePIDL(pidl);
-	if (strret)
-		CoTaskMemFree(strret);
+	if (name)
+		CoTaskMemFree(name);
 	return ret;
 }
 
@@ -2730,13 +2888,13 @@ static PyObject *PySHCreateShellItemArray(PyObject *self, PyObject *args)
 	IShellItemArray *sia_ret = NULL;
 	if(!PyArg_ParseTuple(args, "OOO:SHCreateShellItemArray", &obParent, &obsf, &obChildren))
 		return NULL;
-	// @pyparm PIDL|parent||
+	// @pyparm <o PyIDL>|parent||Absolute ID list of parent folder, or None if sf is specified
 	if (!PyObject_AsPIDL(obParent, &parent, TRUE))
 		goto done;
 	// @pyparm <o PyIShellFolder>|sf||The Shell data source object that is the parent of the child items specified in children. If parent is specified, this parameter can be NULL.
 	if (!PyCom_InterfaceFromPyInstanceOrObject(obsf, IID_IShellFolder, (void **)&sf, TRUE/* bNoneOK */))
 		goto done;
-	// @pyparm [PIDL, ...]|children||
+	// @pyparm [<o PyIDL>, ...]|children||Sequence of relative IDLs for items in the parent folder
 	if (!PyObject_AsPIDLArray(obChildren, &nchildren, &children))
 		goto done;
 	HRESULT hr;
@@ -2756,11 +2914,7 @@ done:
 		PyObject_FreePIDL(parent);
 	if (children)
 		PyObject_FreePIDLArray(nchildren, children);
-	if (sf) {
-		PY_INTERFACE_PRECALL;
-		sf->Release();
-		PY_INTERFACE_POSTCALL;
-	}
+	PYCOM_RELEASE(sf);
 	return ret;
 }
 
@@ -2800,11 +2954,7 @@ static PyObject *PySHCreateShellItemArrayFromDataObject(PyObject *self, PyObject
 	// ref on view consumed by ret object.
 	ret = PyCom_PyObjectFromIUnknown((IUnknown *)iret, iid, FALSE);
 done:
-	if (ido) {
-		PY_INTERFACE_PRECALL;
-		ido->Release();
-		PY_INTERFACE_POSTCALL;
-	}
+	PYCOM_RELEASE(ido);
 	return ret;
 }
 
@@ -2821,7 +2971,7 @@ static PyObject *PySHCreateShellItemArrayFromIDLists(PyObject *self, PyObject *a
 	PCIDLIST_ABSOLUTE_ARRAY pidls = NULL;
 	IShellItemArray *iret = NULL;
 	UINT npidls;
-	if(!PyArg_ParseTuple(args, "O:SHCreateShellItemArray", &obpidls))
+	if(!PyArg_ParseTuple(args, "O:SHCreateShellItemArrayFromIDLists", &obpidls))
 		return NULL;
 	// @pyparm [<o PyIDL>, ...]|pidls||A sequence of absolute IDLs.
 	if (!PyObject_AsPIDLArray(obpidls, &npidls, &pidls))
@@ -2845,7 +2995,7 @@ done:
 	return ret;
 }
 
-// @pymethod <o PyIUnknown>|shell|SHCreateShellItemArrayFromShellItem|
+// @pymethod <o PyIShellItemArray>|shell|SHCreateShellItemArrayFromShellItem|Creates an item array containing a single item
 static PyObject *PySHCreateShellItemArrayFromShellItem(PyObject *self, PyObject *args)
 {
 	// @comm This function is only available on Vista and later; a
@@ -2853,39 +3003,28 @@ static PyObject *PySHCreateShellItemArrayFromShellItem(PyObject *self, PyObject 
 	if (pfnSHCreateShellItemArrayFromShellItem==NULL)
 		return PyCom_BuildPyException(E_NOTIMPL);
 
-	PyObject *ret = NULL;
 	PyObject *obsi;
-	PyObject *obiid = Py_None;
 	IShellItem *isi = NULL;
 	IID iid = IID_IShellItemArray;
 	void *iret = NULL;
-	if(!PyArg_ParseTuple(args, "O|O:SHCreateShellItemArrayFromShellItem", &obsi, &obiid))
+	if(!PyArg_ParseTuple(args, "O|O&:SHCreateShellItemArrayFromShellItem", &obsi,
+		PyWinObject_AsIID, &iid))
 		return NULL;
 	// @pyparm <o PyIShellItem>|si||A shell item
 	if (!PyCom_InterfaceFromPyInstanceOrObject(obsi, IID_IShellItem, (void **)&isi, FALSE/* bNoneOK */))
-		goto done;
-	// @pyparm <o PyIID>|iid|IID_IShellItemArray|The IID to query for
-	if (obiid != Py_None && !PyWinObject_AsIID(obiid, &iid))
-		goto done;
+		return NULL;
+	// @pyparm <o PyIID>|riid|IID_IShellItemArray|The interface to return
 	HRESULT hr;
 	{
 	PY_INTERFACE_PRECALL;
 	hr = (*pfnSHCreateShellItemArrayFromShellItem)(isi, iid, &iret);
+	isi->Release();
 	PY_INTERFACE_POSTCALL;
 	}
-	if (FAILED(hr)) {
-		PyCom_BuildPyException(hr);
-		goto done;
-	}
+	if (FAILED(hr))
+		return PyCom_BuildPyException(hr);
 	// ref on view consumed by ret object.
-	ret = PyCom_PyObjectFromIUnknown((IUnknown *)iret, iid, FALSE);
-done:
-	if (isi) {
-		PY_INTERFACE_PRECALL;
-		isi->Release();
-		PY_INTERFACE_POSTCALL;
-	}
-	return ret;
+	return PyCom_PyObjectFromIUnknown((IUnknown *)iret, iid, FALSE);
 }
 
 // @pymethod <o PyIShellItem>|shell|SHCreateItemFromIDList|Creates and initializes a Shell item
@@ -2900,7 +3039,7 @@ static PyObject *PySHCreateItemFromIDList(PyObject *self, PyObject *args)
 	PyObject *obpidl;
 	IID iid = IID_IShellItem;
 	// @pyparm <o PyIDL>|pidl||An absolute item identifier list
-	// @pyparm <o PyIID>|iid|IID_IShellItem|The interface to create
+	// @pyparm <o PyIID>|riid|IID_IShellItem|The interface to create
 	if(!PyArg_ParseTuple(args, "O|O&:SHCreateItemFromIDList", &obpidl, PyWinObject_AsIID, &iid))
 		return NULL;
 	PIDLIST_ABSOLUTE pidl;
@@ -2935,7 +3074,7 @@ static PyObject *PySHCreateItemFromParsingName(PyObject *self, PyObject *args)
 	PyObject *obname, *obctx, *obiid;
 	// @pyparm str|name||The display name of the item to create, eg a file path
 	// @pyparm <o PyIBindCtx>|ctx||Bind context, can be None
-	// @pyparm <o PyIID>|iid||The interface to create, IID_IShellItem or IID_IShellItem2
+	// @pyparm <o PyIID>|riid||The interface to create, IID_IShellItem or IID_IShellItem2
 
 	if(!PyArg_ParseTuple(args, "OOO:SHCreateItemFromParsingName", &obname, &obctx, &obiid))
 		return NULL;
@@ -2967,11 +3106,7 @@ static PyObject *PySHCreateItemFromParsingName(PyObject *self, PyObject *args)
 	ret = PyCom_PyObjectFromIUnknown((IUnknown *)out, iid, FALSE);
 
 done:
-	if (ctx) {
-		PY_INTERFACE_PRECALL;
-		ctx->Release();
-		PY_INTERFACE_POSTCALL;
-	}
+	PYCOM_RELEASE(ctx);
 	if (name)
 		PyWinObject_FreeWCHAR(name);
 
@@ -2988,10 +3123,10 @@ static PyObject *PySHCreateItemFromRelativeName(PyObject *self, PyObject *args)
 
 	PyObject *ret = NULL;
 	PyObject *obname, *obctx, *obiid, *obparent;
-	// @pyparm <o PyIShellItem>|parent||
-	// @pyparm unicode|name||
-	// @pyparm <o PyIBindCtx>|ctx||
-	// @pyparm <o PyIID>|iid||
+	// @pyparm <o PyIShellItem>|Parent||Shell item interface on the parent folder
+	// @pyparm str|Name||Relative name of an item within the parent folder
+	// @pyparm <o PyIBindCtx>|ctx||Bind context for parsing, can be None
+	// @pyparm <o PyIID>|riid||The interface to return, IID_IShellItem or IID_IShellItem2
 
 	if(!PyArg_ParseTuple(args, "OOOO:SHCreateItemFromRelativeName", &obparent, &obname, &obctx, &obiid))
 		return NULL;
@@ -3041,7 +3176,7 @@ done:
 	return ret;
 }
 
-// @pymethod |shell|SHCreateItemInKnownFolder|Creates a Shell item object for a single file that exists inside a known folder.
+// @pymethod <o PyIShellItem>|shell|SHCreateItemInKnownFolder|Creates a Shell item object for a single file that exists inside a known folder.
 static PyObject *PySHCreateItemInKnownFolder(PyObject *self, PyObject *args)
 {
 	// @comm This function is only available on Vista and later; a
@@ -3049,49 +3184,35 @@ static PyObject *PySHCreateItemInKnownFolder(PyObject *self, PyObject *args)
 	if (pfnSHCreateItemInKnownFolder==NULL)
 		return PyCom_BuildPyException(E_NOTIMPL);
 
-	PyObject *ret = NULL;
 	DWORD flags;
-	PyObject *obname, *obiid, *obguid;
-	// @pyparm unicode|name||
-	// @pyparm <o PyIBindCtx>|ctx||
-	// @pyparm <o PyIID>|iid||
-
-	if(!PyArg_ParseTuple(args, "OkOO:SHCreateItemInKnownFolder", &obguid, &flags, &obname, &obiid))
+	PyObject *obname;
+	IID riid = IID_IShellItem;
+	GUID folderid;
+	// @pyparm <o PyIID>|FolderId||The GUID of a known folder (shell.FOLDERID_*)
+	// @pyparm int|Flags||Combination of shellcon.KF_FLAG_* flags controlling how folder is handled
+	// @pyparm str|Name||Name of an item in the folder.  Pass None to bind to the known folder itself.
+	// @pyparm <o PyIID>|riid|IID_IShellItem|The interface to return, usually IID_IShellItem or IID_IShellItem2
+	if(!PyArg_ParseTuple(args, "O&kO|O&:SHCreateItemInKnownFolder",
+		PyWinObject_AsIID, &folderid,
+		&flags, &obname,
+		PyWinObject_AsIID, &riid))
 		return NULL;
 
-	IID iid;
-	GUID guid;
-	WCHAR *name = NULL;
+	TmpWCHAR name;
 	void *out = NULL;
 	HRESULT hr;
-
-	if (!PyWinObject_AsIID(obguid, &guid))
-		goto done;
-
-	if (!PyWinObject_AsIID(obiid, &iid))
-		goto done;
-
 	if (!PyWinObject_AsWCHAR(obname, &name, TRUE))
-		goto done;
+		return NULL;
 
-	{
 	PY_INTERFACE_PRECALL;
-	hr = (*pfnSHCreateItemInKnownFolder)(guid, flags, name, iid, &out);
+	hr = (*pfnSHCreateItemInKnownFolder)(folderid, flags, name, riid, &out);
 	PY_INTERFACE_POSTCALL;
-	}
-	if (FAILED(hr)) {
-		PyCom_BuildPyException(hr);
-		goto done;
-	}
-	ret = PyCom_PyObjectFromIUnknown((IUnknown *)out, iid, FALSE);
-done:
-	if (name)
-		PyWinObject_FreeWCHAR(name);
-
-	return ret;
+	if (FAILED(hr))
+		return PyCom_BuildPyException(hr);
+	return PyCom_PyObjectFromIUnknown((IUnknown *)out, riid, FALSE);
 }
 
-// @pymethod |shell|SHCreateItemWithParent|Create a Shell item, given a parent folder and a child item ID.
+// @pymethod <o PyIShellItem>|shell|SHCreateItemWithParent|Create a Shell item, given a parent folder and a child item ID.
 static PyObject *PySHCreateItemWithParent(PyObject *self, PyObject *args)
 {
 	// @comm This function is only available on Vista and later; a
@@ -3099,23 +3220,22 @@ static PyObject *PySHCreateItemWithParent(PyObject *self, PyObject *args)
 	if (pfnSHCreateItemWithParent==NULL)
 		return PyCom_BuildPyException(E_NOTIMPL);
 	PyObject *ret = NULL;
-	PyObject *obpidlparent, *obsfparent, *obpidl, *obiid;
-	if(!PyArg_ParseTuple(args, "OOOO:SHCreateItemWithParent", &obpidlparent, &obsfparent, &obpidl, &obiid))
+	PyObject *obpidlparent, *obsfparent, *obpidl;
+	IID riid = IID_IShellItem;
+	if(!PyArg_ParseTuple(args, "OOO|O&:SHCreateItemWithParent", &obpidlparent, &obsfparent, &obpidl,
+		PyWinObject_AsIID, &riid))
 		return NULL;
-	IID iid;
-	PIDLIST_ABSOLUTE parentpidl;
-	PUITEMID_CHILD pidl;
-	IShellFolder *sfparent;
+	PIDLIST_ABSOLUTE parentpidl = NULL;
+	PUITEMID_CHILD pidl = NULL;
+	IShellFolder *sfparent = NULL;
 
-	// @pyparm PIDL|parent||
-	// @pyparm <o PyIShellFolder>|parent||
-	// @pyparm PIDL|child||
-	// @pyparm <o PyIID>|iid||
+	// @pyparm <o PyIDL>|Parent||Absolute item id list of the parent folder.  Pass None if the below shell folder is used.
+	// @pyparm <o PyIShellFolder>|sfParent||Parent folder object.  Can be None if parent id list is specified.
+	// @pyparm <o PyIDL>|child||Relative item id list for an object in the parent folder
+	// @pyparm <o PyIID>|riid|IID_IShellItem|The interface to return, usually IID_IShellItem or IID_IShellItem2
 	if (!PyObject_AsPIDL(obpidlparent, &parentpidl, TRUE))
 		goto done;
 	if (!PyObject_AsPIDL(obpidl, &pidl))
-		goto done;
-	if (!PyWinObject_AsIID(obiid, &iid))
 		goto done;
 	if (!PyCom_InterfaceFromPyInstanceOrObject(obsfparent, IID_IShellFolder, (void **)&sfparent, TRUE /* bNoneOK */))
 		goto done;
@@ -3124,25 +3244,20 @@ static PyObject *PySHCreateItemWithParent(PyObject *self, PyObject *args)
 	void *out;
 	{
 	PY_INTERFACE_PRECALL;
-	hr = (*pfnSHCreateItemWithParent)(parentpidl, sfparent, pidl, iid, &out);
+	hr = (*pfnSHCreateItemWithParent)(parentpidl, sfparent, pidl, riid, &out);
 	PY_INTERFACE_POSTCALL;
 	}
 	if (FAILED(hr)) {
 		PyCom_BuildPyException(hr);
 		goto done;
 	}
-	ret = PyCom_PyObjectFromIUnknown((IUnknown *)out, iid, FALSE);
+	ret = PyCom_PyObjectFromIUnknown((IUnknown *)out, riid, FALSE);
 done:
 	if (parentpidl)
 		PyObject_FreePIDL(parentpidl);
 	if (pidl)
 		PyObject_FreePIDL(pidl);
-	if (sfparent) {
-		PY_INTERFACE_PRECALL;
-		sfparent->Release();
-		PY_INTERFACE_POSTCALL;
-	}
-
+	PYCOM_RELEASE(sfparent);
 	return ret;
 }
 
@@ -3179,11 +3294,7 @@ static PyObject *PySHGetIDListFromObject(PyObject *self, PyObject *args)
 	}
 	ret = PyObject_FromPIDL(pidl, TRUE);
 done:
-	if (unk) {
-		PY_INTERFACE_PRECALL;
-		unk->Release();
-		PY_INTERFACE_POSTCALL;
-	}
+	PYCOM_RELEASE(unk);
 	return ret;
 }
 
@@ -3225,11 +3336,7 @@ static PyObject *PySHCreateShellItem(PyObject *self, PyObject *args)
 	}
 	ret = PyCom_PyObjectFromIUnknown((IUnknown *)isi, IID_IShellItem, FALSE);
 done:
-	if (parent_folder) {
-		PY_INTERFACE_PRECALL;
-		parent_folder->Release();
-		PY_INTERFACE_POSTCALL;
-	}
+	PYCOM_RELEASE(parent_folder);
 	if (parent_pidl)
 		PyObject_FreePIDL(parent_pidl);
 	if (item)
@@ -3246,7 +3353,7 @@ static PyObject *PySHOpenFolderAndSelectItems(PyObject *self, PyObject *args, Py
 	if (pfnSHOpenFolderAndSelectItems==NULL)
 		return PyCom_BuildPyException(E_NOTIMPL);
 	static char *keywords[] = {"Folder", "Items", "Flags", NULL};
-	DWORD flags;
+	DWORD flags = 0;
 	PyObject *obfolder, *obitems, *ret=NULL;
 	// @pyparm <o PyIDL>|Folder||An absolute item id list identifying a shell folder
 	// @pyparm (<o PyIDL>,...)|Items||A sequence of relative item ids identifying items in the folder
@@ -3277,6 +3384,125 @@ static PyObject *PySHOpenFolderAndSelectItems(PyObject *self, PyObject *args, Py
 	if (items)
 		PyObject_FreePIDLArray(item_cnt, items);
 	return ret;
+}
+
+// @pymethod <o PyIStream>|shell|SHCreateStreamOnFileEx|Creates an IStream interface that reads and writes to a file
+static PyObject *PySHCreateStreamOnFileEx(PyObject *self, PyObject *args, PyObject *kwargs)
+{
+	// @comm Accepts keyword args.
+	// @comm This function is only available on WinXP and later.
+	// COM exception with E_NOTIMPL will be thrown if the function can't be located.
+	if (pfnSHCreateStreamOnFileEx==NULL)
+		return PyCom_BuildPyException(E_NOTIMPL);
+	static char *keywords[] = {"File", "Mode", "Attributes", "Create", "Template", NULL};
+	PyObject *obfname, *obtemplate = Py_None;
+	TmpWCHAR fname;
+	DWORD mode, attributes;
+	BOOL create;
+	IStream *ret;
+	// @pyparm str|File||Name of file to be connected to the stream
+	// @pyparm int|Mode||Combination of storagecon.STGM_* flags specifying the access mode
+	// @pyparm int|Attributes||Combination of win32con.FILE_ATTRIBUTE_* flags
+	// @pyparm bool|Create||Determines if function should fail when file exists (see MSDN docs for full explanation)
+	// @pyparm None|Template|None|Reserved, use only None
+
+	if(!PyArg_ParseTupleAndKeywords(args, kwargs, "Okkl|O:SHCreateStreamOnFileEx", keywords,
+		&obfname, &mode, &attributes, &create, &obtemplate))
+		return NULL;
+	if (obtemplate != Py_None){
+		PyErr_SetString(PyExc_ValueError, "Template is reserved and must be None");
+		return NULL;
+		}
+	if (!PyWinObject_AsWCHAR(obfname, &fname, FALSE))
+		return NULL;
+
+	HRESULT hr;
+	PY_INTERFACE_PRECALL;
+	hr = (*pfnSHCreateStreamOnFileEx)(fname, mode, attributes, create, NULL, &ret);
+	PY_INTERFACE_POSTCALL;
+	if (FAILED(hr))
+		return PyCom_BuildPyException(hr);
+	return PyCom_PyObjectFromIUnknown(ret, IID_IStream, FALSE);
+}
+
+// @pymethod |shell|SetCurrentProcessExplicitAppUserModelID|Sets the taskbar identifier
+static PyObject *PySetCurrentProcessExplicitAppUserModelID(PyObject *self, PyObject *args)
+{
+	// @comm Should be used early in process startup before creating any windows
+	// @comm Requires Windows 7 or later
+	// @pyparm str|AppID||The Application User Model ID used to group taskbar buttons
+	if (pfnSetCurrentProcessExplicitAppUserModelID==NULL)
+		return PyCom_BuildPyException(E_NOTIMPL);
+	TmpWCHAR appid;
+	PyObject *obappid;
+	if(!PyArg_ParseTuple(args, "O:SetCurrentProcessExplicitAppUserModelID", &obappid))
+		return NULL;
+	if (!PyWinObject_AsWCHAR(obappid, &appid, FALSE))
+		return NULL;
+
+	HRESULT hr;
+	PY_INTERFACE_PRECALL;
+	hr = (*pfnSetCurrentProcessExplicitAppUserModelID)(appid);
+	PY_INTERFACE_POSTCALL;
+	if (FAILED(hr))
+		return PyCom_BuildPyException(hr);
+	Py_INCREF(Py_None);
+	return Py_None;
+}
+
+// @pymethod str|shell|GetCurrentProcessExplicitAppUserModelID|Retrieves the current taskbar identifier
+// @comm Will only retrieve an identifier if set by the application, not a system-assigned default.
+// @comm Requires Windows 7 or later
+static PyObject *PyGetCurrentProcessExplicitAppUserModelID(PyObject *self, PyObject *args)
+{
+	if (pfnGetCurrentProcessExplicitAppUserModelID==NULL)
+		return PyCom_BuildPyException(E_NOTIMPL);
+	WCHAR* appid;
+	HRESULT hr;
+	PY_INTERFACE_PRECALL;
+	hr = (*pfnGetCurrentProcessExplicitAppUserModelID)(&appid);
+	PY_INTERFACE_POSTCALL;
+	if (FAILED(hr))
+		return PyCom_BuildPyException(hr);
+	PyObject *ret = PyWinObject_FromWCHAR(appid);
+	CoTaskMemFree(appid);
+	return ret;
+}
+
+// @pymethod (<o PyIDL>, int)|shell|SHParseDisplayName|Translates a display name into a shell item identifier
+// @rdesc Returns the item id list and any requested attribute flags
+// @comm Accepts keyword args
+// @comm Requires XP or later
+static PyObject *PySHParseDisplayName(PyObject *self, PyObject *args, PyObject *kwargs)
+{
+	if (pfnSHParseDisplayName==NULL)
+		return PyCom_BuildPyException(E_NOTIMPL);
+	static char *keywords[] = {"Name", "Attributes", "BindCtx", NULL};
+	TmpWCHAR Name;
+	IBindCtx *pBindCtx;
+	SFGAOF att_requested, att_returned;
+	PyObject *obName, *obBindCtx = Py_None;
+	PIDLIST_ABSOLUTE pidl;
+	// @pyparm str|Name||Display name of a shell item, such as a file path
+	// @pyparm int|Attributes||Bitmask of shell attributes to retrieve, combination of shellcon.SFGAO_*
+	// @pyparm <o PyIBindCtx>|BindCtx|None|Bind context, can be None
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "Ok|O", keywords,
+		&obName, &att_requested, &obBindCtx))
+		return NULL;
+	if (!PyWinObject_AsWCHAR(obName, &Name, FALSE))
+		return NULL;
+	if (!PyCom_InterfaceFromPyObject(obBindCtx, IID_IBindCtx, (void **)&pBindCtx, TRUE))
+		return NULL;
+
+	HRESULT hr;
+	PY_INTERFACE_PRECALL;
+	hr = (*pfnSHParseDisplayName)(Name, pBindCtx, &pidl, att_requested, &att_returned);
+	if (pBindCtx)
+		pBindCtx->Release();
+	PY_INTERFACE_POSTCALL;
+	if (FAILED(hr))
+		return PyCom_BuildPyException(hr);
+	return Py_BuildValue("Nk", PyObject_FromPIDL(pidl, TRUE), att_returned);
 }
 
 
@@ -3338,6 +3564,10 @@ static struct PyMethodDef shell_methods[]=
 	{ "SHILCreateFromPath", PySHILCreateFromPath, METH_VARARGS}, // @pymeth SHILCreateFromPath|Returns the PIDL and attributes of a path
 	{ "SHCreateShellItem", PySHCreateShellItem, METH_VARARGS}, // @pymeth SHCreateShellItem|Creates an IShellItem interface from a PIDL
 	{ "SHOpenFolderAndSelectItems", (PyCFunction)PySHOpenFolderAndSelectItems, METH_VARARGS|METH_KEYWORDS}, // @pymeth SHOpenFolderAndSelectItems|Displays a shell folder with items pre-selected
+	{ "SHCreateStreamOnFileEx", (PyCFunction)PySHCreateStreamOnFileEx, METH_VARARGS|METH_KEYWORDS},	// @pymeth SHCreateStreamOnFileEx|Creates a <o PyIStream> that reads and writes to a file
+	{ "SetCurrentProcessExplicitAppUserModelID", PySetCurrentProcessExplicitAppUserModelID, METH_VARARGS},	// @pymeth SetCurrentProcessExplicitAppUserModelID|Sets the taskbar identifier
+	{ "GetCurrentProcessExplicitAppUserModelID", PyGetCurrentProcessExplicitAppUserModelID, METH_NOARGS},	// @pymeth GetCurrentProcessExplicitAppUserModelID|Retrieves the current taskbar identifier
+	{ "SHParseDisplayName", (PyCFunction)PySHParseDisplayName, METH_VARARGS|METH_KEYWORDS},	// @pymeth SHParseDisplayName|Translates a display name into a shell item identifier
 	{ NULL, NULL },
 };
 
@@ -3403,6 +3633,42 @@ static const PyCom_InterfaceSupportInfo g_interfaceSupportData[] =
 	PYCOM_INTERFACE_CLIENT_ONLY (ActiveDesktop),
 	PYCOM_INTERFACE_CLIENT_ONLY (ActiveDesktopP),
 	PYCOM_INTERFACE_CLIENT_ONLY (ADesktopP2),
+	PYCOM_INTERFACE_FULL (EnumShellItems),
+	PYCOM_INTERFACE_CLSID_ONLY (KnownFolderManager),
+	PYCOM_INTERFACE_CLIENT_ONLY(KnownFolderManager),
+	PYCOM_INTERFACE_CLIENT_ONLY(KnownFolder),
+	PYCOM_INTERFACE_CLIENT_ONLY(TaskbarList),
+	PYCOM_INTERFACE_CLSID_ONLY(TaskbarList),
+	PYCOM_INTERFACE_CLIENT_ONLY(FileOperation),
+	PYCOM_INTERFACE_CLSID_ONLY(FileOperation),
+	PYCOM_INTERFACE_SERVER_ONLY(FileOperationProgressSink),
+	PYCOM_INTERFACE_FULL(TransferSource),
+	PYCOM_INTERFACE_FULL(TransferDestination),
+	PYCOM_INTERFACE_FULL(TransferAdviseSink),
+	PYCOM_INTERFACE_FULL(ShellItemResources),
+	PYCOM_INTERFACE_FULL(EnumResources),
+	PYCOM_INTERFACE_FULL(RelatedItem),
+	PYCOM_INTERFACE_FULL(TransferMediumItem), // based on IRelatedItem with no extra methods
+	PYCOM_INTERFACE_FULL(CurrentItem), // based on IRelatedItem with no extra methods
+	PYCOM_INTERFACE_FULL(CurrentItem), // based on IRelatedItem with no extra methods
+	PYCOM_INTERFACE_FULL(IdentityName), // based on IRelatedItem with no extra methods
+	// These require Windows 7 SDK to build
+#if WINVER >= 0x0601
+	PYCOM_INTERFACE_CLIENT_ONLY(EnumObjects),
+	PYCOM_INTERFACE_CLIENT_ONLY(ApplicationDocumentLists),
+	PYCOM_INTERFACE_CLSID_ONLY(ApplicationDocumentLists),
+	PYCOM_INTERFACE_CLIENT_ONLY(ApplicationDestinations),
+	PYCOM_INTERFACE_CLSID_ONLY(ApplicationDestinations),
+	// CLSID_EnumerableObjectCollection is used to create IObjectArray or IObjectCollection
+	PYCOM_INTERFACE_CLSID_ONLY(EnumerableObjectCollection),
+	PYCOM_INTERFACE_CLIENT_ONLY(ObjectArray),
+	PYCOM_INTERFACE_CLIENT_ONLY(ObjectCollection),
+	// CLSID_DestinationList used to create ICustomDestinationList
+	PYCOM_INTERFACE_CLSID_ONLY(DestinationList),
+	PYCOM_INTERFACE_CLIENT_ONLY(CustomDestinationList),
+	PYCOM_INTERFACE_CLSID_ONLY(ShellLibrary),
+	PYCOM_INTERFACE_CLIENT_ONLY(ShellLibrary),
+#endif
 };
 
 static int AddConstant(PyObject *dict, const char *key, long value)
@@ -3473,6 +3739,9 @@ PYWIN_MODULE_INIT_FUNC(shell)
 		pfnSHGetIDListFromObject =(PFNSHGetIDListFromObject)GetProcAddress(shell32, "SHGetIDListFromObject");
 		pfnSHCreateShellItem =(PFNSHCreateShellItem)GetProcAddress(shell32, "SHCreateShellItem");
 		pfnSHOpenFolderAndSelectItems = (PFNSHOpenFolderAndSelectItems)GetProcAddress(shell32, "SHOpenFolderAndSelectItems");
+		pfnSetCurrentProcessExplicitAppUserModelID = (PFNSetCurrentProcessExplicitAppUserModelID)GetProcAddress(shell32, "SetCurrentProcessExplicitAppUserModelID");
+		pfnGetCurrentProcessExplicitAppUserModelID = (PFNGetCurrentProcessExplicitAppUserModelID)GetProcAddress(shell32, "GetCurrentProcessExplicitAppUserModelID");
+		pfnSHParseDisplayName = (PFNSHParseDisplayName)GetProcAddress(shell32, "SHParseDisplayName");
 	}
 	// SHGetFolderPath comes from shfolder.dll on older systems
 	if (pfnSHGetFolderPath==NULL){
@@ -3489,6 +3758,7 @@ PYWIN_MODULE_INIT_FUNC(shell)
 	if (shlwapi!=NULL){
 		pfnSHGetViewStatePropertyBag=(PFNSHGetViewStatePropertyBag)GetProcAddress(shlwapi, "SHGetViewStatePropertyBag");
 		pfnAssocCreate=(PFNAssocCreate)GetProcAddress(shlwapi, "AssocCreate");
+		pfnSHCreateStreamOnFileEx = (PFNSHCreateStreamOnFileEx)GetProcAddress(shlwapi, "SHCreateStreamOnFileEx");
 	}
 
 	ADD_CONSTANT(SLR_NO_UI);
@@ -3613,5 +3883,158 @@ PYWIN_MODULE_INIT_FUNC(shell)
 	ADD_IID(BHID_AssociationArray);
 	ADD_IID(BHID_Filter);
 
+	// Known folder ids
+	ADD_IID(FOLDERID_NetworkFolder);
+	ADD_IID(FOLDERID_ComputerFolder);
+	ADD_IID(FOLDERID_InternetFolder);
+	ADD_IID(FOLDERID_ControlPanelFolder);
+	ADD_IID(FOLDERID_PrintersFolder);
+	ADD_IID(FOLDERID_SyncManagerFolder);
+	ADD_IID(FOLDERID_SyncSetupFolder);
+	ADD_IID(FOLDERID_ConflictFolder);
+	ADD_IID(FOLDERID_SyncResultsFolder);
+	ADD_IID(FOLDERID_RecycleBinFolder);
+	ADD_IID(FOLDERID_ConnectionsFolder);
+	ADD_IID(FOLDERID_Fonts);
+	ADD_IID(FOLDERID_Desktop);
+	ADD_IID(FOLDERID_Startup);
+	ADD_IID(FOLDERID_Programs);
+	ADD_IID(FOLDERID_StartMenu);
+	ADD_IID(FOLDERID_Recent);
+	ADD_IID(FOLDERID_SendTo);
+	ADD_IID(FOLDERID_Documents);
+	ADD_IID(FOLDERID_Favorites);
+	ADD_IID(FOLDERID_NetHood);
+	ADD_IID(FOLDERID_PrintHood);
+	ADD_IID(FOLDERID_Templates);
+	ADD_IID(FOLDERID_CommonStartup);
+	ADD_IID(FOLDERID_CommonPrograms);
+	ADD_IID(FOLDERID_CommonStartMenu);
+	ADD_IID(FOLDERID_PublicDesktop);
+	ADD_IID(FOLDERID_ProgramData);
+	ADD_IID(FOLDERID_CommonTemplates);
+	ADD_IID(FOLDERID_PublicDocuments);
+	ADD_IID(FOLDERID_RoamingAppData);
+	ADD_IID(FOLDERID_LocalAppData);
+	ADD_IID(FOLDERID_LocalAppDataLow);
+	ADD_IID(FOLDERID_InternetCache);
+	ADD_IID(FOLDERID_Cookies);
+	ADD_IID(FOLDERID_History);
+	ADD_IID(FOLDERID_System);
+	ADD_IID(FOLDERID_SystemX86);
+	ADD_IID(FOLDERID_Windows);
+	ADD_IID(FOLDERID_Profile);
+	ADD_IID(FOLDERID_Pictures);
+	ADD_IID(FOLDERID_ProgramFilesX86);
+	ADD_IID(FOLDERID_ProgramFilesCommonX86);
+	ADD_IID(FOLDERID_ProgramFilesX64);
+	ADD_IID(FOLDERID_ProgramFilesCommonX64);
+	ADD_IID(FOLDERID_ProgramFiles);
+	ADD_IID(FOLDERID_ProgramFilesCommon);
+	ADD_IID(FOLDERID_AdminTools);
+	ADD_IID(FOLDERID_CommonAdminTools);
+	ADD_IID(FOLDERID_Music);
+	ADD_IID(FOLDERID_Videos);
+	ADD_IID(FOLDERID_PublicPictures);
+	ADD_IID(FOLDERID_PublicMusic);
+	ADD_IID(FOLDERID_PublicVideos);
+	ADD_IID(FOLDERID_ResourceDir);
+	ADD_IID(FOLDERID_LocalizedResourcesDir);
+	ADD_IID(FOLDERID_CommonOEMLinks);
+	ADD_IID(FOLDERID_CDBurning);
+	ADD_IID(FOLDERID_UserProfiles);
+	ADD_IID(FOLDERID_Playlists);
+	ADD_IID(FOLDERID_SamplePlaylists);
+	ADD_IID(FOLDERID_SampleMusic);
+	ADD_IID(FOLDERID_SamplePictures);
+	ADD_IID(FOLDERID_SampleVideos);
+	ADD_IID(FOLDERID_PhotoAlbums);
+	ADD_IID(FOLDERID_Public);
+	ADD_IID(FOLDERID_ChangeRemovePrograms);
+	ADD_IID(FOLDERID_AppUpdates);
+	ADD_IID(FOLDERID_AddNewPrograms);
+	ADD_IID(FOLDERID_Downloads);
+	ADD_IID(FOLDERID_PublicDownloads);
+	ADD_IID(FOLDERID_SavedSearches);
+	ADD_IID(FOLDERID_QuickLaunch);
+	ADD_IID(FOLDERID_Contacts);
+	ADD_IID(FOLDERID_SidebarParts);
+	ADD_IID(FOLDERID_SidebarDefaultParts);
+	// Removed in Windows 7 SDK
+	// ADD_IID(FOLDERID_TreeProperties);
+	ADD_IID(FOLDERID_PublicGameTasks);
+	ADD_IID(FOLDERID_GameTasks);
+	ADD_IID(FOLDERID_SavedGames);
+	ADD_IID(FOLDERID_Games);
+	ADD_IID(FOLDERID_SEARCH_MAPI);
+	ADD_IID(FOLDERID_SEARCH_CSC);
+	ADD_IID(FOLDERID_Links);
+	ADD_IID(FOLDERID_UsersFiles);
+	ADD_IID(FOLDERID_SearchHome);
+	ADD_IID(FOLDERID_OriginalImages);
+#if WINVER >= 0x0601
+	// Added in Windows 7 SDK
+	ADD_IID(FOLDERID_DeviceMetadataStore);
+	ADD_IID(FOLDERID_DocumentsLibrary);
+	ADD_IID(FOLDERID_HomeGroup);
+	ADD_IID(FOLDERID_ImplicitAppShortcuts);
+	ADD_IID(FOLDERID_Libraries);
+	ADD_IID(FOLDERID_MusicLibrary);
+	ADD_IID(FOLDERID_PicturesLibrary);
+	ADD_IID(FOLDERID_PublicLibraries);
+	ADD_IID(FOLDERID_PublicRingtones);
+	ADD_IID(FOLDERID_RecordedTVLibrary); // was FOLDERID_RecordedTV in Vista SDK
+	ADD_IID(FOLDERID_Ringtones);
+	ADD_IID(FOLDERID_UserPinned);
+	ADD_IID(FOLDERID_UserProgramFiles);
+	ADD_IID(FOLDERID_UserProgramFilesCommon);
+	ADD_IID(FOLDERID_UsersLibraries);
+	ADD_IID(FOLDERID_VideosLibrary);
+#endif // WINVER	
+
+	// Known folder types
+	ADD_IID(FOLDERTYPEID_Invalid);
+	ADD_IID(FOLDERTYPEID_Documents);
+	ADD_IID(FOLDERTYPEID_Pictures);
+	ADD_IID(FOLDERTYPEID_Games);
+	ADD_IID(FOLDERTYPEID_ControlPanelCategory);
+	ADD_IID(FOLDERTYPEID_ControlPanelClassic);
+	ADD_IID(FOLDERTYPEID_Printers);
+	ADD_IID(FOLDERTYPEID_RecycleBin);
+	ADD_IID(FOLDERTYPEID_SoftwareExplorer);
+	ADD_IID(FOLDERTYPEID_CompressedFolder);
+	ADD_IID(FOLDERTYPEID_Contacts);
+	ADD_IID(FOLDERTYPEID_NetworkExplorer);
+	ADD_IID(FOLDERTYPEID_UserFiles);
+	// Removed in Windows 7 SDK
+	// ADD_IID(FOLDERTYPEID_Library);
+	// ADD_IID(FOLDERTYPEID_MusicDetails);
+	// ADD_IID(FOLDERTYPEID_MusicIcons);
+ 	// ADD_IID(FOLDERTYPEID_NotSpecified);
+#if WINVER >= 0x0601
+	// Added in Windows 7 SDK
+	ADD_IID(FOLDERTYPEID_Communications);
+	ADD_IID(FOLDERTYPEID_Generic);
+	ADD_IID(FOLDERTYPEID_GenericLibrary);
+	ADD_IID(FOLDERTYPEID_GenericSearchResults);
+	ADD_IID(FOLDERTYPEID_Music);
+	ADD_IID(FOLDERTYPEID_OpenSearch);
+	ADD_IID(FOLDERTYPEID_OtherUsers);
+	ADD_IID(FOLDERTYPEID_PublishedItems);
+	ADD_IID(FOLDERTYPEID_RecordedTV);
+	ADD_IID(FOLDERTYPEID_SavedGames);
+	ADD_IID(FOLDERTYPEID_SearchConnector);
+	ADD_IID(FOLDERTYPEID_SearchHome);
+	ADD_IID(FOLDERTYPEID_Searches);
+	ADD_IID(FOLDERTYPEID_StartMenu);
+	ADD_IID(FOLDERTYPEID_UsersLibraries);
+	ADD_IID(FOLDERTYPEID_Videos);
+#endif // WINVER
+
+	// ??? The shell passes this resource type to IShellResources.OpenResource,
+	// but it doesn't seem to be defined anywhere ???
+	// pywintypes.IID('{4F74D1CF-680C-4EA3-8020-4BDA6792DA3C}')
+	const GUID ResourceTypeStream = {0x4F74D1CF, 0x680C, 0x4EA3, 0x80, 0x20, 0x4B, 0xDA, 0x67, 0x92, 0xDA, 0x3C};
+	ADD_IID(ResourceTypeStream);
 	PYWIN_MODULE_INIT_RETURN_SUCCESS;
 }

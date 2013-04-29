@@ -4,8 +4,30 @@ Generally created by hand after running:
    hg log -rb2xx: > log.out
 However contributors are encouraged to add their own entries for their work.
 
+Since build 218:
+----------------
+* adodbapi updated to version 2.4.3 -- new examples folder includes short programs for
+   reading and writing .xls spreadsheets and reading ACCESS .mdb files using SQL.
+  New functions .is64bit.Python() and .is64bit.os() to help pick the correct drivers.
+  New function .schema_table.names() returns a list of all tables in a database.
+   see adodbapi/README.txt for more information.
+
+* Fix issue implementing COM objects from within a virtualenv (Kevin Smyth 
+  via issue #3597965)
+
+* win32com.shell
+	Add interfaces IFileOperation and IFileOperationProgressSink
+
+* win32com.propsys
+	Add interfaces IPropertyChange, IPropertyChangeArray, and IObjectWithPropertyKey
+	Add functions PSCreateSimplePropertyChange, PSCreatePropertyChangeArray, and SHSetDefaultProperties
+
 Since build 217:
 ----------------
+* mapiutil.py GetPropTagName has been modified to return the fully qualified
+  PT_UNICODE and PT_STRING8 type name. Added optional argument to override
+  rawType default in GetMapiTypeName. (Nick Czeczulin)
+
 * Fix the count of replaced terms in Pythonwin's search/replace (rupole).
 
 * Fix obscure issues in the Pythonwin code browser and other uses of the 
@@ -30,9 +52,25 @@ Since build 217:
 
 * Python 3.3 version is built with VS2010.
 
-* win32com.shell - IShellItem2 added 
+* win32com.shell - added function SHCreateStreamOnFileEx and
+	interfaces IShellItem2, IEnumShellItems, IApplicationDocumentLists,
+	IApplicationDestinations, ITaskbarList, IEnumObjects,
+	IKnownFolder, IKnownFolderManager, IObjectArray, IObjectCollection,
+	ICustomDestinationList, and IShellLibrary; enhance SHAddToRecentDocs.
 
 * win32com.propsys - Many Property System interfaces and functions added
+
+* pythoncom - added StgCreateStorageEx
+
+* win32com.client - 
+	Fix iteration of objects that don't declare an enumerator in their typelib
+	Validate syntax of constants written to makepy generated files
+
+* win32file - Add GetFileInformationByHandleEx, ReOpenFile and OpenFileById,
+  SetFileInformationByHandle.  SetFileTime() has an extra param to allow UTC 
+  time to be specified.
+
+* win32api - Allow UpdateResource to remove a resource
 
 Since build 216:
 ----------------
@@ -264,7 +302,7 @@ Since build 212:
 
 * Added win32inet.WinHttpGetDefaultProxyConfiguration()
 
-* Pythonwin updates from Rémi Paucher; enter completes auto-complete in
+* Pythonwin updates from Rï¿½mi Paucher; enter completes auto-complete in
   the editor and interactive windows, auto-complete should now work on French
   keyboards.  (XXX - some of this was reverted - update!)
 
@@ -590,7 +628,7 @@ Build 208
   multiple file names, prevent Windows handle leak in IQueryAssociations.
 * win32com.adsi: Always return extended error info when available, and expose
   ADsGetLastError explicitly.
-* Leonard Ritter and Robert Förtsch contributed some IE extension samples
+* Leonard Ritter and Robert Fï¿½rtsch contributed some IE extension samples
   (see win32com\demos)
 * .chm documentation now includes a link to search MSDN and google for many 
   API functions

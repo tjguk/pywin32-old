@@ -53,13 +53,12 @@ PyObject *PyIEnumMoniker::Next(PyObject *self, PyObject *args)
 	}
 
 	PyObject *result = PyTuple_New(celtFetched);
-	if ( result != NULL )
-	{
+	if (result) {
 		for ( i = celtFetched; i--; )
 		{
 			PyObject *ob = PyCom_PyObjectFromIUnknown(rgVar[i], IID_IMoniker, FALSE);
-			if ( ob == NULL )
-			{
+			rgVar[i] = NULL;
+			if ( ob == NULL ) {
 				Py_DECREF(result);
 				result = NULL;
 				break;
@@ -67,6 +66,7 @@ PyObject *PyIEnumMoniker::Next(PyObject *self, PyObject *args)
 			PyTuple_SET_ITEM(result, i, ob);
 		}
 	}
+	for ( i = celtFetched; i--; ) PYCOM_RELEASE(rgVar[i]);
 	delete [] rgVar;
 	return result;
 	// @rdesc The result is a tuple of <o PyIID> objects, 
@@ -183,10 +183,7 @@ PyObject *PyIMoniker::BindToObject(PyObject *self, PyObject *args)
 	IMoniker *pMonLeft = NULL;
 	if (obMoniker!=Py_None) {
 		if (!PyCom_InterfaceFromPyInstanceOrObject(obMoniker, IID_IMoniker, (void **)&pMonLeft, FALSE)) {
-			PY_INTERFACE_PRECALL;
-			pBindCtx->Release();
-			PY_INTERFACE_POSTCALL;
-
+			PYCOM_RELEASE(pBindCtx);
 			return NULL;
 		}
 	}
@@ -234,10 +231,7 @@ PyObject *PyIMoniker::BindToStorage(PyObject *self, PyObject *args)
 	IMoniker *pMonLeft = NULL;
 	if (obMoniker!=Py_None) {
 		if (!PyCom_InterfaceFromPyInstanceOrObject(obMoniker, IID_IMoniker, (void **)&pMonLeft, FALSE)) {
-			PY_INTERFACE_PRECALL;
-			pBindCtx->Release();
-			PY_INTERFACE_POSTCALL;
-
+			PYCOM_RELEASE(pBindCtx);
 			return NULL;
 		}
 	}
@@ -284,9 +278,7 @@ PyObject *PyIMoniker::GetDisplayName(PyObject *self, PyObject *args)
 	IMoniker *pMonLeft = NULL;
 	if (obMoniker!=Py_None) {
 		if (!PyCom_InterfaceFromPyInstanceOrObject(obMoniker, IID_IMoniker, (void **)&pMonLeft, FALSE)) {
-			PY_INTERFACE_PRECALL;
-			pBindCtx->Release();
-			PY_INTERFACE_POSTCALL;
+			PYCOM_RELEASE(pBindCtx);
 			return NULL;
 		}
 	}

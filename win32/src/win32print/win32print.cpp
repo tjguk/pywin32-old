@@ -126,7 +126,11 @@ static PyObject *PyOpenPrinter(PyObject *self, PyObject *args)
 		pprinter_defaults=&printer_defaults;
 		}
 	if (PyWinObject_AsTCHAR(obprinter, &printer, TRUE)){
-		if (OpenPrinter(printer, &handle, pprinter_defaults))
+		BOOL bsuccess;
+		Py_BEGIN_ALLOW_THREADS
+		bsuccess = OpenPrinter(printer, &handle, pprinter_defaults);
+		Py_END_ALLOW_THREADS
+		if (bsuccess)
 			ret=PyWinObject_FromPrinterHANDLE(handle);
 		else
 			PyWin_SetAPIError("OpenPrinter");
@@ -1340,7 +1344,7 @@ static PyObject *PyDocumentProperties(PyObject *self, PyObject *args)
 		&&PyWinObject_AsDEVMODE(obdmoutput, &dmoutput, TRUE)
 		&&PyWinObject_AsDEVMODE(obdminput, &dminput, TRUE)){
 		rc=DocumentProperties(hwnd, hprinter, devicename, dmoutput, dminput, mode);
-		if (ret < 0)
+		if (rc < 0)
 			PyWin_SetAPIError("DocumentProperties");
 		else{
 			if (obdmoutput!=Py_None)

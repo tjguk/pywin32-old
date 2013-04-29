@@ -41,6 +41,25 @@ PyObject *MakeOLECHARToObj(const OLECHAR * str)
 }
 
 // Currency conversions.
+// Should probably place this in module dict so it can be DECREF'ed on finalization
+// Also may get borked by a reload of the decimal module
+static PyObject *Decimal_class = NULL;
+
+PyObject *get_Decimal_class(void)
+{
+	// Try to import compiled _decimal module introduced in Python 3.3
+	TmpPyObject decimal_module = PyImport_ImportModule("_decimal");
+
+	// Look for python implemented module introduced in Python 2.4
+	if (decimal_module==NULL){
+		PyErr_Clear();
+		decimal_module = PyImport_ImportModule("decimal");
+		}
+	if (decimal_module==NULL)
+		return NULL;
+	return PyObject_GetAttrString(decimal_module, "Decimal");
+}
+
 PyObject *PyObject_FromCurrency(CURRENCY &cy)
 {
 #if (PY_VERSION_HEX < 0x03000000)
@@ -48,55 +67,44 @@ PyObject *PyObject_FromCurrency(CURRENCY &cy)
 #else
 	static char *divname = "__truediv__";
 #endif
-	static PyObject *decimal_module=NULL;
-	PyObject *result = NULL;
-	
-	if (decimal_module==NULL){
-		decimal_module=PyImport_ImportModule("decimal");
-		if (!decimal_module) {
-			PyErr_Clear();
-			decimal_module=PyImport_ImportModule("win32com.decimal_23");
-			}
+	if (Decimal_class == NULL){
+		Decimal_class = get_Decimal_class();
+		if (Decimal_class == NULL)
+			return NULL;
 		}
-	if (decimal_module==NULL)
-		return NULL;
 
-	PyObject *unscaled_result;
-	unscaled_result=PyObject_CallMethod(decimal_module, "Decimal", "L", cy.int64);
-	if (unscaled_result!=NULL){
-		result=PyObject_CallMethod(unscaled_result, divname, "l", 10000);
-		Py_DECREF(unscaled_result);
-		}
-	return result;
+	TmpPyObject unscaled_result = PyObject_CallFunction(Decimal_class, "L", cy.int64);
+	if (unscaled_result == NULL)
+		return NULL;
+	return PyObject_CallMethod(unscaled_result, divname, "l", 10000);
 }
 
 PYCOM_EXPORT BOOL PyObject_AsCurrency(PyObject *ob, CURRENCY *pcy)
 {
-	if (!PyTuple_Check(ob) || PyTuple_Size(ob) != 2 ||
-		!PyLong_Check(PyTuple_GET_ITEM(ob, 0)) ||
-		!PyLong_Check(PyTuple_GET_ITEM(ob, 1)))
-	{
-		if (strcmp(ob->ob_type->tp_name, "Decimal")==0) {
-			PyObject *scaled = PyObject_CallMethod(ob, "__mul__", "l", 10000);
-			if (!scaled) return FALSE;
-			PyObject *longval = PyNumber_Long(scaled);
-			Py_DECREF(scaled);
-			pcy->int64 = PyLong_AsLongLong(longval);
-			Py_DECREF(longval);
-			if (pcy->int64 == -1 && PyErr_Occurred())
-				return FALSE;
-		} else {
-			PyErr_Format(
-				PyExc_TypeError,
-				"Currency object must be either a tuple of 2 longs or a "
-				"Decimal instance (got %s).",
-				ob->ob_type->tp_name);
+	if (Decimal_class == NULL){
+		Decimal_class = get_Decimal_class();
+		if (Decimal_class == NULL)
 			return FALSE;
 		}
-	} else {
-		pcy->Hi = PyLong_AsLong(PyTuple_GET_ITEM(ob, 0));
-		pcy->Lo = PyLong_AsLong(PyTuple_GET_ITEM(ob, 1));
-	}
+
+	int right_type = PyObject_IsInstance(ob, Decimal_class);
+	if (right_type == -1)
+		return FALSE;
+	else if (right_type == 0){
+		PyErr_Format(PyExc_TypeError,
+			"Currency object must be a Decimal instance (got %s).",ob->ob_type->tp_name);
+		return FALSE;
+		}
+
+	TmpPyObject scaled = PyObject_CallMethod(ob, "__mul__", "l", 10000);
+	if (scaled == NULL)
+		return FALSE;
+	TmpPyObject longval = PyNumber_Long(scaled);
+	if (longval == NULL)
+		return FALSE;
+	pcy->int64 = PyLong_AsLongLong(longval);
+	if (pcy->int64 == -1 && PyErr_Occurred())
+		return FALSE;
 	return TRUE;
 }
 
@@ -104,11 +112,7 @@ PYCOM_EXPORT BOOL PyObject_AsCurrency(PyObject *ob, CURRENCY *pcy)
 // caller is asking us to take ownership of the COM reference.  If we
 // fail to create a Python object, we must release the reference.
 #define POFIU_RELEASE_ON_FAILURE \
-	if (!bAddRef) { \
-			PY_INTERFACE_PRECALL; \
-			punk->Release(); \
-			PY_INTERFACE_POSTCALL; \
-		}
+	if (!bAddRef) PYCOM_RELEASE(punk)
 
 
 // Interface conversions
@@ -122,8 +126,10 @@ PyObject *PyCom_PyObjectFromIUnknown(IUnknown *punk, REFIID riid, BOOL bAddRef /
 
 	// Look up the map, and create the object.
 	PyObject *obiid = PyWinObject_FromIID(riid);
-	if (!obiid) return NULL;
-
+	if (!obiid){
+		POFIU_RELEASE_ON_FAILURE
+		return NULL;
+	}
 	PyObject *createType = PyDict_GetItem(g_obPyCom_MapIIDToType, obiid);
 	Py_DECREF(obiid);
 	if (createType==NULL) {
@@ -153,7 +159,7 @@ PyObject *PyCom_PyObjectFromIUnknown(IUnknown *punk, REFIID riid, BOOL bAddRef /
 	PyCom_LogF("Object %s created at 0x%0xld, IUnknown at 0x%0xld",
 		 myCreateType->tp_name, ret, ret->m_obj);
 #endif
-	if (ret && bAddRef && punk) punk->AddRef();
+	if (ret && bAddRef) punk->AddRef();
 	return ret;
 }
 
@@ -406,4 +412,15 @@ PyObject *PyCom_PyObjectFromSTATPROPSETSTG(STATPROPSETSTG *pStg)
 	Py_XDECREF(obctime);
 	Py_XDECREF(obatime);
 	return ret;
+}
+
+BOOL PyCom_PyObjectAsSTATPROPSETSTG(PyObject *obstat, STATPROPSETSTG *pstat) 
+{
+	return PyArg_ParseTuple(obstat, "O&O&kO&O&O&:STATPROPSETSTG",
+			PyWinObject_AsIID, &pstat->fmtid,
+			PyWinObject_AsIID, &pstat->clsid,
+			&pstat->grfFlags,
+			PyWinObject_AsFILETIME, &pstat->mtime,
+			PyWinObject_AsFILETIME, &pstat->ctime,
+			PyWinObject_AsFILETIME, &pstat->atime);
 }
