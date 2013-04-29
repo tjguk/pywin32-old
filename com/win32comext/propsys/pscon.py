@@ -138,6 +138,9 @@ COP_WORD_EQUAL = 12
 COP_WORD_STARTSWITH = 13
 COP_APPLICATION_SPECIFIC = 14
 
+## PERSIST_SPROPSTORE_FLAGS, used with IPersistSerializedPropStorage
+FPSPS_READONLY	= 1
+
 PKEY_PIDSTR_MAX = 10 # will take care of any long integer value
 #define GUIDSTRING_MAX      (1 + 8 + 1 + 4 + 1 + 4 + 1 + 4 + 1 + 12 + 1 + 1)  // "{12345678-1234-1234-1234-123456789012}"
 GUIDSTRING_MAX = (1 + 8 + 1 + 4 + 1 + 4 + 1 + 4 + 1 + 12 + 1 + 1) # hrm ???
@@ -705,3 +708,16 @@ PKEY_Video_VerticalAspectRatio = (IID('{64440491-4C8B-11D1-8B70-080036B11A03}'),
 PKEY_Volume_FileSystem = (IID('{9B174B35-40FF-11D2-A27E-00C04FC30871}'), 4)
 PKEY_Volume_IsMappedDrive = (IID('{149C0B69-2C2D-48FC-808F-D318D78C4636}'), 2)
 PKEY_Volume_IsRoot = (IID('{9B174B35-40FF-11D2-A27E-00C04FC30871}'), 10)
+
+PKEY_AppUserModel_RelaunchCommand = (IID('{9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3}'), 2)
+PKEY_AppUserModel_RelaunchIconResource = (IID('{9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3}'), 3)
+PKEY_AppUserModel_RelaunchDisplayNameResource = (IID('{9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3}'), 4)
+PKEY_AppUserModel_ID = (IID('{9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3}'), 5)
+PKEY_AppUserModel_IsDestListSeparator = (IID('{9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3}'), 6)
+PKEY_AppUserModel_ExcludeFromShowInNewInstall = (IID('{9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3}'), 8)
+PKEY_AppUserModel_PreventPinning = (IID('{9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3}'), 9)
+
+# PKA_FLAGS, used with IPropertyChange
+PKA_SET = 0
+PKA_APPEND = 1
+PKA_DELETE = 2

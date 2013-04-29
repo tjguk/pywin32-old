@@ -11,12 +11,14 @@ generates Windows .hlp files.
 
 #include "stdafx.h"
 #include <objbase.h>
+#include <ComSvcs.h>
 #include "PythonCOM.h"
 #include "PythonCOMServer.h"
 #include "PyFactory.h"
 #include "PyRecord.h"
 #include "PyComTypeObjects.h"
 #include "OleAcc.h" // for ObjectFromLresult proto...
+#include "IAccess.h" // for IAccessControl
 #include "pyerrors.h" // for PyErr_Warn in 2.5 and earlier...
 
 
@@ -33,12 +35,13 @@ extern PyObject *g_obPyCom_MapInterfaceNameToIID;
 PyObject *g_obEmpty = NULL;
 PyObject *g_obMissing = NULL;
 PyObject *g_obArgNotFound = NULL;
-
+PyObject *g_obNothing = NULL;
 PyObject *PyCom_InternalError = NULL;
 
 // Storage related functions.
 extern PyObject *pythoncom_StgOpenStorage(PyObject *self, PyObject *args);
-extern PyObject *pythoncom_StgOpenStorageEx(PyObject *self, PyObject *args);
+extern PyObject *pythoncom_StgOpenStorageEx(PyObject *self, PyObject *args, PyObject *kwargs);
+extern PyObject *pythoncom_StgCreateStorageEx(PyObject *self, PyObject *args, PyObject *kwargs);
 extern PyObject *pythoncom_FmtIdToPropStgName(PyObject *self, PyObject *args);
 extern PyObject *pythoncom_PropStgNameToFmtId(PyObject *self, PyObject *args);
 
@@ -87,6 +90,11 @@ extern LONG _PyCom_GetGatewayCount(void);
 // Function pointers we load at runtime.
 #define CHECK_PFN(fname) if (pfn##fname==NULL) return PyCom_BuildPyException(E_NOTIMPL);
 
+// Requires IE 5.5 or later
+typedef HRESULT (STDAPICALLTYPE *CreateURLMonikerExfunc)(LPMONIKER,LPCWSTR,LPMONIKER *,DWORD);
+static CreateURLMonikerExfunc pfnCreateURLMonikerEx = NULL;
+
+// Win2k or later
 typedef HRESULT (STDAPICALLTYPE *CoWaitForMultipleHandlesfunc)(DWORD dwFlags,
   DWORD dwTimeout,
   ULONG cHandles,
@@ -94,12 +102,24 @@ typedef HRESULT (STDAPICALLTYPE *CoWaitForMultipleHandlesfunc)(DWORD dwFlags,
   LPDWORD  lpdwindex
 );
 static CoWaitForMultipleHandlesfunc pfnCoWaitForMultipleHandles = NULL;
-
-typedef HRESULT (STDAPICALLTYPE *CreateURLMonikerExfunc)(LPMONIKER,LPCWSTR,LPMONIKER *,DWORD);
-static CreateURLMonikerExfunc pfnCreateURLMonikerEx = NULL;
+typedef HRESULT (STDAPICALLTYPE *CoGetObjectContextfunc)(REFIID, void **);
+static CoGetObjectContextfunc pfnCoGetObjectContext = NULL;
+typedef HRESULT (STDAPICALLTYPE *CoGetCancelObjectfunc)(DWORD, REFIID, void **);
+static CoGetCancelObjectfunc pfnCoGetCancelObject = NULL;
+typedef HRESULT (STDAPICALLTYPE *CoSetCancelObjectfunc)(IUnknown *);
+static CoSetCancelObjectfunc pfnCoSetCancelObject = NULL;
 
 // typedefs for the function pointers are in OleAcc.h
+// WinXP or later
 LPFNOBJECTFROMLRESULT pfnObjectFromLresult = NULL;
+
+// May not be available on Windows 95, although I'm not sure that's even a concern anymore
+typedef HRESULT (STDAPICALLTYPE *CoCreateInstanceExfunc)(REFCLSID, IUnknown *, DWORD, COSERVERINFO *, ULONG, MULTI_QI *);
+static CoCreateInstanceExfunc pfnCoCreateInstanceEx = NULL;
+typedef HRESULT (STDAPICALLTYPE *CoInitializeSecurityfunc)(PSECURITY_DESCRIPTOR, LONG, SOLE_AUTHENTICATION_SERVICE*,
+	void *, DWORD, DWORD, void *, DWORD, void *);
+static CoInitializeSecurityfunc pfnCoInitializeSecurity = NULL;
+
 
 BOOL PyCom_HasDCom()
 {
@@ -138,7 +158,7 @@ static PyObject *pythoncom_CoCreateInstance(PyObject *self, PyObject *args)
 	if (!PyArg_ParseTuple(args, "OOiO:CoCreateInstance",
 		&obCLSID,	// @pyparm <o PyIID>|clsid||Class identifier (CLSID) of the object
 		&obUnk,	// @pyparm <o PyIUnknown>|unkOuter||The outer unknown, or None
-		&dwClsContext,// @pyparm int|context||The create context for the object
+		&dwClsContext,// @pyparm int|context||The create context for the object, combination of pythoncom.CLSCTX_* flags
 		&obiid)) // @pyparm <o PyIID>|iid||The IID required from the object
 		return NULL;
 	if (!PyWinObject_AsIID(obCLSID, &clsid))
@@ -169,6 +189,7 @@ static PyObject *pythoncom_CoCreateInstance(PyObject *self, PyObject *args)
 // @pymethod <o PyIUnknown>|pythoncom|CoCreateInstanceEx|Create a new instance of an OLE automation server possibly on a remote machine.
 static PyObject *pythoncom_CoCreateInstanceEx(PyObject *self, PyObject *args)
 {
+	CHECK_PFN(CoCreateInstanceEx);
 	PyObject *obCLSID;
 	PyObject *obUnk;
 	PyObject *obCoServer;
@@ -183,11 +204,10 @@ static PyObject *pythoncom_CoCreateInstanceEx(PyObject *self, PyObject *args)
 	PyObject *result = NULL;
 	ULONG numIIDs = 0;
 	ULONG i;
-	Py_ssize_t py_numIIDs;
 	if (!PyArg_ParseTuple(args, "OOiOO:CoCreateInstanceEx",
 		&obCLSID, // @pyparm <o PyIID>|clsid||Class identifier (CLSID) of the object
 		&obUnk, // @pyparm <o PyIUnknown>|unkOuter||The outer unknown, or None
-		&dwClsContext, // @pyparm int|context||The create context for the object
+		&dwClsContext, // @pyparm int|context||The create context for the object, combination of pythoncom.CLSCTX_* flags
 		&obCoServer, // @pyparm (server, authino=None, reserved1=0,reserved2=0)|serverInfo||May be None, or describes the remote server to execute on.
 		&obrgiids)) // @pyparm [<o PyIID>, ...]|iids||A list of IIDs required from the object
 		return NULL;
@@ -214,61 +234,43 @@ static PyObject *pythoncom_CoCreateInstanceEx(PyObject *self, PyObject *args)
 	if (!PyCom_InterfaceFromPyInstanceOrObject(obUnk, IID_IUnknown, (void **)&punk, TRUE))
 		goto done;
 
-	if (!PySequence_Check(obrgiids)) {
-		PyErr_SetString(PyExc_TypeError, "IID's must be sequence of IID objects");
+	if (!SeqToVector(obrgiids, &iids, &numIIDs, PyWinObject_AsIID))
 		goto done;
-	}
-	py_numIIDs = PySequence_Length(obrgiids);
-	if (py_numIIDs > ULONG_MAX){
-		PyErr_Format(PyExc_ValueError, "%u is maximum number of IIDs", ULONG_MAX);
-		goto done;
-		}
-	numIIDs=(ULONG)py_numIIDs;
-	iids = new IID[numIIDs];
 	mqi = new MULTI_QI[numIIDs];
-	if (iids==NULL || mqi==NULL) {
+	if (mqi==NULL) {
 		PyErr_SetString(PyExc_MemoryError, "Allocating MULTIQI array");
 		goto done;
 	}
 
 	for (i=0;i<numIIDs;i++) {
-		PyObject *me = PySequence_GetItem(obrgiids, i);
-		if (me==NULL) goto done;
-		BOOL ok = PyWinObject_AsIID(me, iids+i);
-		Py_DECREF(me);
-		if (!ok) goto done;
 		mqi[i].pIID = iids+i;
 		mqi[i].pItf = NULL;
 		mqi[i].hr = 0;
 	}
-	// Jump hoops in case the platform doesnt have it.
+
 	{ // scoping
-	HRESULT (STDAPICALLTYPE *mypfn)(REFCLSID, IUnknown *, DWORD, COSERVERINFO *, ULONG, MULTI_QI *);
-	HMODULE hMod = GetModuleHandle(_T("ole32.dll"));
-	if (hMod==0) {
-		PyCom_BuildInternalPyException("Can not load ole32.dll");
-		goto done;
-	}
-	FARPROC fp = GetProcAddress(hMod, "CoCreateInstanceEx");
-	if (fp==NULL) {
-		PyCom_BuildPyException(E_NOTIMPL);
-		goto done;
-	}
-	mypfn = (HRESULT (STDAPICALLTYPE *)(REFCLSID, IUnknown *, DWORD, COSERVERINFO *, ULONG, MULTI_QI *))fp;
 	PY_INTERFACE_PRECALL;
-	HRESULT hr = (*mypfn)(clsid, punk, dwClsContext, pServerInfo, numIIDs, mqi);
+	HRESULT hr = (*pfnCoCreateInstanceEx)(clsid, punk, dwClsContext, pServerInfo, numIIDs, mqi);
 	PY_INTERFACE_POSTCALL;
 	if (FAILED(hr)) {
 		PyCom_BuildPyException(hr);
 		goto done;
 	}
-	} // end scoping.
+	} // end scoping
+
 	result = PyTuple_New(numIIDs);
 	if (result==NULL) goto done;
 	for (i=0;i<numIIDs;i++) {
 		PyObject *obNew;
-		if (mqi[i].hr==0)
+		if (mqi[i].hr==0){
 			obNew = PyCom_PyObjectFromIUnknown(mqi[i].pItf, *mqi[i].pIID, FALSE);
+			mqi[i].pItf = NULL;
+			if (!obNew) {
+				Py_DECREF(result);
+				result = NULL;
+				goto done;
+			}
+		}
 		else {
 			obNew = Py_None;
 			Py_INCREF(Py_None);
@@ -276,15 +278,12 @@ static PyObject *pythoncom_CoCreateInstanceEx(PyObject *self, PyObject *args)
 		PyTuple_SET_ITEM(result, i, obNew);
 	}
 done:
-	if (punk) {
-		PY_INTERFACE_PRECALL;
-		punk->Release();
-		PY_INTERFACE_POSTCALL;
-	}
+	PYCOM_RELEASE(punk);
 	if (serverInfo.pwszName)
 		PyWinObject_FreeWCHAR(serverInfo.pwszName);
 
-	delete [] iids;
+	for (i=0;i<numIIDs;i++) PYCOM_RELEASE(mqi[i].pItf)
+	CoTaskMemFree(iids);
 	delete [] mqi;
 	return result;
 }
@@ -295,29 +294,32 @@ done:
 // @pymethod |pythoncom|CoInitializeSecurity|Registers security and sets the default security values. 
 static PyObject *pythoncom_CoInitializeSecurity(PyObject *self, PyObject *args)
 {
+	CHECK_PFN(CoInitializeSecurity);
 	DWORD cAuthSvc;
 	SOLE_AUTHENTICATION_SERVICE *pAS = NULL;
 	DWORD dwAuthnLevel;
 	DWORD dwImpLevel;
 	DWORD dwCapabilities;
-	PSECURITY_DESCRIPTOR pSD, pSD_absolute=NULL;
+	PSECURITY_DESCRIPTOR pSD=NULL, pSD_absolute=NULL;
+	IID appid;
+	IAccessControl *pIAC = NULL;
 	PyObject *obSD, *obAuthSvc, *obReserved1, *obReserved2, *obAuthInfo;
 	if (!PyArg_ParseTuple(args, "OOOiiOiO:CoInitializeSecurity",
-		&obSD, // @pyparm <o PySECURITY_DESCRIPTOR>|sd||Security descriptor containing access permissions for process' objects, can be None
-		&obAuthSvc, // @pyparm object|authInfo||A value of None tells COM to choose which authentication services to use.  An empty list means use no services.
+		&obSD,  // @pyparm <o PySECURITY_DESCRIPTOR>|sd||Security descriptor containing access permissions for process' objects, can be None.
+				// <nl>If Capabilities contains EOAC_APPID, sd should be an AppId (guid), or None to use server executable.
+				// <nl>If Capabilities contains EOAC_ACCESS_CONTROL, sd parameter should be an IAccessControl interface.
+		&obAuthSvc, // @pyparm object|authSvc||A value of None tells COM to choose which authentication services to use.  An empty list means use no services.
 		&obReserved1,// @pyparm object|reserved1||Must be None
 		&dwAuthnLevel, // @pyparm int|authnLevel||One of pythoncom.RPC_C_AUTHN_LEVEL_* values. The default authentication level for proxies. On the server side, COM will fail calls that arrive at a lower level. All calls to AddRef and Release are made at this level.
 		&dwImpLevel, // @pyparm int|impLevel||One of pythoncom.RPC_C_IMP_LEVEL_* values.  The default impersonation level for proxies. This value is not checked on the server side. AddRef and Release calls are made with this impersonation level so even security aware apps should set this carefully. Setting IUnknown security only affects calls to QueryInterface, not AddRef or Release. 
 		&obAuthInfo, // @pyparm object|authInfo||Must be None
-		&dwCapabilities, // @pyparm int|capabilities||Additional client and/or server-side capabilities. Any set of pythoncom.EOAC_* flags may be passed. Currently only EOAC_MUTUAL_AUTH, EOAC_SECURE_REFS, and EOAC_NONE are defined
+		&dwCapabilities, // @pyparm int|capabilities||Authentication capabilities, combination of pythoncom.EOAC_* flags.
 		&obReserved2)) // @pyparm object|reserved2||Must be None
 		return NULL;
 	if (obReserved1 != Py_None || obReserved2 != Py_None || obAuthInfo != Py_None) {
 		PyErr_SetString(PyExc_TypeError, "Not all of the 'None' arguments are None!");
 		return NULL;
 	}
-	if (!PyWinObject_AsSECURITY_DESCRIPTOR(obSD, &pSD, /*BOOL bNoneOK = */TRUE))
-		return NULL;
 
 	if (obAuthSvc==Py_None)
 		cAuthSvc = (DWORD)-1;
@@ -327,22 +329,39 @@ static PyObject *pythoncom_CoInitializeSecurity(PyObject *self, PyObject *args)
 		PyErr_SetString(PyExc_TypeError, "obAuthSvc must be None or an empty sequence.");
 		return NULL;
 	}
-	HMODULE hMod = GetModuleHandle(_T("ole32.dll"));
-	if (hMod==0) return PyCom_BuildInternalPyException("Can not load ole32.dll");
-	FARPROC fp = GetProcAddress(hMod, "CoInitializeSecurity");
-	if (fp==NULL) return PyCom_BuildPyException(E_NOTIMPL);
-	typedef HRESULT (STDAPICALLTYPE *CoInitializeSecurityfunc)
-		(PSECURITY_DESCRIPTOR, LONG, SOLE_AUTHENTICATION_SERVICE*, void *, DWORD, DWORD, void *, DWORD, void *);
-	CoInitializeSecurityfunc mypfn=(CoInitializeSecurityfunc)fp;
 
-	// Security descriptor must be in absolute form
-	if (pSD!=NULL)
-		if (!_MakeAbsoluteSD(pSD, &pSD_absolute))
+	// Depending on capabilities flags, first arg can be one of:
+	//		AppId (or NULL to lookup server executable in APPID registry key)
+	//		IAccessControl interface (cannot be NULL)
+	//		Absolute security descriptor (or NULL to use a default SD)
+	if (dwCapabilities & EOAC_APPID){
+		if (obSD != Py_None){
+			if (!PyWinObject_AsIID(obSD, &appid))
+				return NULL;
+			pSD = (PSECURITY_DESCRIPTOR)&appid;
+			}
+		}
+	else if (dwCapabilities & EOAC_ACCESS_CONTROL){
+		if (!PyCom_InterfaceFromPyObject(obSD, IID_IAccessControl, (void **)&pIAC, FALSE))
 			return NULL;
+		pSD = (PSECURITY_DESCRIPTOR)pIAC;
+		}
+	else{
+		if (!PyWinObject_AsSECURITY_DESCRIPTOR(obSD, &pSD, /*BOOL bNoneOK = */TRUE))
+			return NULL;
+		// Security descriptor must be in absolute form
+		if (pSD){
+			if (!_MakeAbsoluteSD(pSD, &pSD_absolute))
+				return NULL;
+			pSD = pSD_absolute;
+			}
+		}
 
 	PY_INTERFACE_PRECALL;
-	HRESULT hr = (*mypfn)(pSD_absolute, cAuthSvc, pAS, NULL, dwAuthnLevel, dwImpLevel, NULL, dwCapabilities, NULL);
-//	HRESULT hr = CoInitializeSecurity(pSD, cAuthSvc, pAS, NULL, dwAuthnLevel, dwImpLevel, NULL, dwCapabilities, NULL);
+	HRESULT hr = (*pfnCoInitializeSecurity)(pSD, cAuthSvc, pAS, NULL, dwAuthnLevel,
+		dwImpLevel, NULL, dwCapabilities, NULL);
+	if (pIAC)
+		pIAC->Release();
 	PY_INTERFACE_POSTCALL;
 	if (pSD_absolute!=NULL)
 		FreeAbsoluteSD(pSD_absolute);
@@ -734,19 +753,8 @@ static PyObject *pythoncom_WrapObject(PyObject *self, PyObject *args)
 	PY_INTERFACE_POSTCALL;
 	if ( FAILED(hr) )
 		return PyCom_BuildPyException(hr);
-
-	/* pass the pDispatch reference into this thing */
-	/* ### this guy should always AddRef() ... */
-	PyObject *result = PyCom_PyObjectFromIUnknown(pDispatch, iidInterface, FALSE);
-	if ( !result )
-	{
-		PY_INTERFACE_PRECALL;
-		pDispatch->Release();
-		PY_INTERFACE_POSTCALL;
-		return NULL;
-	}
-
-	return result;
+	/* return a PyObject wrapping it */
+	return PyCom_PyObjectFromIUnknown(pDispatch, iidInterface, FALSE);
 }
 
 static PyObject *pythoncom_MakeIID(PyObject *self, PyObject *args)
@@ -794,7 +802,10 @@ static PyObject *pythoncom_MkParseDisplayName(PyObject *self, PyObject *args)
 		}
 
 		/* pass the pBC ref into obBindCtx */
-		obBindCtx = PyCom_PyObjectFromIUnknown(pBC, IID_IBindCtx, FALSE);
+		if (!(obBindCtx = PyCom_PyObjectFromIUnknown(pBC, IID_IBindCtx, FALSE))) {
+			PyWinObject_FreeWCHAR(displayName);
+			return NULL;
+		}
 	}
 	else
 	{
@@ -807,7 +818,10 @@ static PyObject *pythoncom_MkParseDisplayName(PyObject *self, PyObject *args)
 		Py_INCREF(obBindCtx);
 		pBC->Release();
 	}
-	/* at this point: we own a ref to obBindCtx, but not pBC */
+	/* at this point: we own a ref to obBindCtx, but not a direct one on pBC
+	   (obBindCtx itself has an indirect reference to pBC though, so it is still
+	   safe to use ...)
+	*/
 	ULONG chEaten;
 	IMoniker *pmk;
 	PY_INTERFACE_PRECALL;
@@ -819,18 +833,11 @@ static PyObject *pythoncom_MkParseDisplayName(PyObject *self, PyObject *args)
 		Py_DECREF(obBindCtx);
 		return PyCom_BuildPyException(hr);
 	}
-
-	/* pass ownership of the moniker into the result */
-	PyObject *obMoniker = PyCom_PyObjectFromIUnknown(pmk, IID_IMoniker, FALSE);
-
 	/* build the result */
-	PyObject *result = Py_BuildValue("OiO", obMoniker, chEaten, obBindCtx);
-
-	/* done with these obs */
-	Py_XDECREF(obMoniker);
-	Py_DECREF(obBindCtx);
-
-	return result;
+	return Py_BuildValue("NiN",
+			     PyCom_PyObjectFromIUnknown(pmk, IID_IMoniker, FALSE),
+			     chEaten,
+			     obBindCtx);
 }
 
 // @pymethod <o PyIMoniker>|pythoncom|CreatePointerMoniker|Creates a new <o PyIMoniker> object.
@@ -865,15 +872,14 @@ static PyObject *pythoncom_CreateFileMoniker(PyObject *self, PyObject *args)
 	if ( !PyArg_ParseTuple(args, "O:CreateFileMoniker", &obName) )
 		return NULL;
 
-	BSTR bstrName;
-	if (!PyWinObject_AsBstr(obName, &bstrName))
+	TmpWCHAR Name;
+	if (!PyWinObject_AsWCHAR(obName, &Name))
 		return NULL;
 
 	IMoniker *pmk;
 	PY_INTERFACE_PRECALL;
-	HRESULT hr = CreateFileMoniker(bstrName, &pmk);
+	HRESULT hr = CreateFileMoniker(Name, &pmk);
 	PY_INTERFACE_POSTCALL;
-	PyWinObject_FreeBstr(bstrName);
 
 	if ( FAILED(hr) )
 		return PyCom_BuildPyException(hr);
@@ -891,25 +897,18 @@ static PyObject *pythoncom_CreateItemMoniker(PyObject *self, PyObject *args)
 	if ( !PyArg_ParseTuple(args, "OO:CreateItemMoniker", &obDelim, &obItem) )
 		return NULL;
 
-	BSTR bstrDelim, bstrItem;
-	if (!PyWinObject_AsBstr(obDelim, &bstrDelim, TRUE))
+	TmpWCHAR Delim, Item;
+	if (!PyWinObject_AsWCHAR(obDelim, &Delim, TRUE))
 		return NULL;
-
-	if (!PyWinObject_AsBstr(obItem, &bstrItem, FALSE)) {
-		PyWinObject_FreeBstr(bstrDelim);
+	if (!PyWinObject_AsWCHAR(obItem, &Item, FALSE))
 		return NULL;
-	}
 
 	IMoniker *pmk;
 	PY_INTERFACE_PRECALL;
-	HRESULT hr = CreateItemMoniker(bstrDelim, bstrItem, &pmk);
+	HRESULT hr = CreateItemMoniker(Delim, Item, &pmk);
 	PY_INTERFACE_POSTCALL;
-	PyWinObject_FreeBstr(bstrDelim);
-	PyWinObject_FreeBstr(bstrItem);
-
 	if ( FAILED(hr) )
 		return PyCom_BuildPyException(hr);
-
 	return PyCom_PyObjectFromIUnknown(pmk, IID_IMoniker, FALSE);
 }
 
@@ -942,7 +941,7 @@ static PyObject *pythoncom_CreateURLMonikerEx(PyObject *self, PyObject *args)
 			PyCom_BuildPyException(hr);
 		else
 			ret=PyCom_PyObjectFromIUnknown(output_moniker, IID_IMoniker, FALSE);
-		}
+	}
 	PyWinObject_FreeWCHAR(url);
 	return ret;
 }
@@ -952,18 +951,16 @@ static PyObject *pythoncom_GetClassFile(PyObject *self, PyObject *args)
 {
 	CLSID clsid;
 	PyObject *obFileName;
-	BSTR fname;
-	// @pyparm string|fileName||The filename for which you are requesting the associated CLSID.
+	TmpWCHAR fname;
+	// @pyparm str|fileName||The filename for which you are requesting the associated CLSID.
 	if (!PyArg_ParseTuple(args, "O", &obFileName))
 		return NULL;
-
-	if (!PyCom_BstrFromPyObject(obFileName, &fname, FALSE))
+	if (!PyWinObject_AsWCHAR(obFileName, &fname, FALSE))
 		return NULL;
 
 	PY_INTERFACE_PRECALL;
 	HRESULT hr = GetClassFile(fname, &clsid);
 	PY_INTERFACE_POSTCALL;
-	SysFreeString(fname);
 	if (FAILED(hr))
 		return PyCom_BuildPyException(hr);
 	return PyWinObject_FromIID(clsid);
@@ -1259,7 +1256,7 @@ static PyObject *pythoncom_CoUnmarshalInterface(PyObject *self, PyObject*args)
 			PyCom_BuildPyException(hr);
 		else
 			ret=PyCom_PyObjectFromIUnknown(pIUnknown, riid, FALSE);
-		}
+	}
 	return ret;
 }
 
@@ -1291,26 +1288,17 @@ static PyObject *pythoncom_CoGetObject(PyObject *self, PyObject*args)
 {
 	PyObject *obName;
 	PyObject *obBindOpts = Py_None;
-	PyObject *obIID = Py_None;
-	if (!PyArg_ParseTuple(args, "O|OO:CoGetObject", 
+	IID iid = IID_IUnknown;
+	if (!PyArg_ParseTuple(args, "O|OO&:CoGetObject", 
 			&obName, // @pyparm string|name||
-			&obBindOpts, // @pyparm None|bindOpts||Must be None
-			&obIID )) // @pyparm <o PyIID>|iid||The IID if the interface to unmarshal.
+			&obBindOpts, // @pyparm None|bindOpts|None|Must be None
+			PyWinObject_AsIID, &iid )) // @pyparm <o PyIID>|iid|IID_IUnknown|The IID of the interface to return.
 		return NULL;
 
 	if (obBindOpts != Py_None)
 		return PyErr_Format(PyExc_ValueError, "BindOptions must be None");
-
-	IID iid;
-	if (obIID == Py_None)
-		iid = IID_IUnknown;
-	else {
-		if (!PyWinObject_AsIID(obIID, &iid))
-			return NULL;
-	}
-
-	PyWin_AutoFreeBstr name;
-	if (!PyWinObject_AsAutoFreeBstr(obName, &name))
+	TmpWCHAR name;
+	if (!PyWinObject_AsWCHAR(obName, &name))
 		return NULL;
 
 	IUnknown *pUnk;
@@ -1402,9 +1390,7 @@ static PyObject *pythoncom_OleSaveToStream(PyObject *self, PyObject*args)
 	IStream *pStream;
 	if (!PyCom_InterfaceFromPyObject(obStream, IID_IStream, (void **)&pStream, FALSE))
 	{
-		PY_INTERFACE_PRECALL;
-		if(pPersist) pPersist->Release();
-		PY_INTERFACE_POSTCALL;
+		PYCOM_RELEASE(pPersist);
 		return NULL;
 	}
 
@@ -1427,14 +1413,13 @@ static PyObject *pythoncom_CreateTypeLib(PyObject *self, PyObject *args)
 	PyObject *obfname;
 	if (!PyArg_ParseTuple(args, "lO", &syskind, &obfname))
 		return NULL;
-	BSTR fname;
-	if (!PyWinObject_AsBstr(obfname, &fname))
+	TmpWCHAR fname;
+	if (!PyWinObject_AsWCHAR(obfname, &fname))
 		return NULL;
 	ICreateTypeLib *pcti = NULL;
 	PY_INTERFACE_PRECALL;
 	HRESULT hr = CreateTypeLib((SYSKIND)syskind, fname, &pcti);
 	PY_INTERFACE_POSTCALL;
-	PyWinObject_FreeBstr(fname);
 	if (FAILED(hr))
 		return PyCom_BuildPyException(hr);
 	return PyCom_PyObjectFromIUnknown(pcti, IID_ICreateTypeLib, FALSE);
@@ -1448,14 +1433,13 @@ static PyObject *pythoncom_CreateTypeLib2(PyObject *self, PyObject *args)
 	PyObject *obfname;
 	if (!PyArg_ParseTuple(args, "lO", &syskind, &obfname))
 		return NULL;
-	BSTR fname;
-	if (!PyWinObject_AsBstr(obfname, &fname))
+	TmpWCHAR fname;
+	if (!PyWinObject_AsWCHAR(obfname, &fname))
 		return NULL;
 	ICreateTypeLib2 *pcti = NULL;
 	PY_INTERFACE_PRECALL;
 	HRESULT hr = CreateTypeLib2((SYSKIND)syskind, fname, &pcti);
 	PY_INTERFACE_POSTCALL;
-	PyWinObject_FreeBstr(fname);
 	if (FAILED(hr))
 		return PyCom_BuildPyException(hr);
 	return PyCom_PyObjectFromIUnknown(pcti, IID_ICreateTypeLib2, FALSE);
@@ -1859,6 +1843,122 @@ static PyObject *pythoncom_ObjectFromAddress(PyObject *self, PyObject *args)
 	return PyCom_PyObjectFromIUnknown(ret, iid, FALSE);
 }
 
+// @pymethod <o PyIServerSecurity>|pythoncom|CoGetCallContext|Creates interfaces used to access client security requirements and perform impersonation
+// @comm ISecurityCallContext will only be available for a server that uses role-based security
+static PyObject *pythoncom_CoGetCallContext(PyObject *self, PyObject *args)
+{
+	// @pyparm <o PyIID>|riid|IID_IServerSecurity|The interface to create,
+	//	IID_IServerSecurity or IID_ISecurityCallContext
+	IID riid = IID_IServerSecurity;
+	void *ret;
+	if (!PyArg_ParseTuple(args, "|O&:CoGetCallContext",
+		PyWinObject_AsIID, &riid))
+		return NULL;
+
+	HRESULT hr;
+	Py_BEGIN_ALLOW_THREADS
+	hr = CoGetCallContext(riid, &ret);
+	Py_END_ALLOW_THREADS
+	if (FAILED(hr))
+		return PyCom_BuildPyException(hr);
+	return PyCom_PyObjectFromIUnknown((IUnknown *)ret, riid, FALSE);
+}
+
+// @pymethod <o PyIContext>|pythoncom|CoGetObjectContext|Creates an interface to interact with the context of the current object
+// @comm Requires Win2k or later
+// @comm COM applications can use this function to create IComThreadingInfo, IContext, or IContextCallback
+//	COM+ applications may also create IObjectContext, IObjectContextInfo, IObjectContextActivity, or IContextState
+static PyObject *pythoncom_CoGetObjectContext(PyObject *self, PyObject *args)
+{
+	CHECK_PFN(CoGetObjectContext);
+	// @pyparm <o PyIID>|riid|IID_IContext|The interface to return
+	IID riid = IID_IContext;
+	void *ret;
+	if (!PyArg_ParseTuple(args, "|O&:CoGetObjectContext",
+		PyWinObject_AsIID, &riid))
+		return NULL;
+	HRESULT hr;
+	Py_BEGIN_ALLOW_THREADS
+	hr = (*pfnCoGetObjectContext)(riid, &ret);
+	Py_END_ALLOW_THREADS
+	if (FAILED(hr))
+		return PyCom_BuildPyException(hr);
+	return PyCom_PyObjectFromIUnknown((IUnknown *)ret, riid, FALSE);
+}
+
+// @pymethod <o PyICancelMethodCalls>|pythoncom|CoGetCancelObject|Retrieves an interface used to cancel a pending call
+// @comm Requires Win2k or later
+static PyObject *pythoncom_CoGetCancelObject(PyObject *self, PyObject *args)
+{
+	CHECK_PFN(CoGetCancelObject);
+	// @pyparm int|ThreadID|0|Id of thread with pending call, or 0 for current thread
+	// @pyparm <o PyIID>|riid|IID_ICancelMethodCalls|The interface to return
+	DWORD tid = 0;
+	IID riid = IID_ICancelMethodCalls;
+	void *ret;
+	if (!PyArg_ParseTuple(args, "|kO&:CoGetCancelObject",
+		&tid, PyWinObject_AsIID, &riid))
+		return NULL;
+	HRESULT hr;
+	Py_BEGIN_ALLOW_THREADS
+	hr = (*pfnCoGetCancelObject)(tid, riid, &ret);
+	Py_END_ALLOW_THREADS
+	if (FAILED(hr))
+		return PyCom_BuildPyException(hr);
+	return PyCom_PyObjectFromIUnknown((IUnknown *)ret, riid, FALSE);
+}
+
+// @pymethod |pythoncom|CoSetCancelObject|Sets or removes a <o PyICancelMethodCalls> interface to be used on the current thread
+// @comm Requires Win2k or later
+static PyObject *pythoncom_CoSetCancelObject(PyObject *self, PyObject *args)
+{
+	CHECK_PFN(CoSetCancelObject);
+	// @pyparm <o PyIUnknown>|Unk||An interface that support ICancelMethodCalls, can be None to unregister current cancel object
+	IUnknown *pUnk;
+	PyObject *obUnk;
+	if (!PyArg_ParseTuple(args, "O:CoSetCancelObject", &obUnk))
+		return NULL;
+	if (!PyCom_InterfaceFromPyInstanceOrObject(obUnk, IID_IUnknown, (void**)&pUnk, TRUE))
+		return NULL;
+
+	HRESULT hr;
+	Py_BEGIN_ALLOW_THREADS
+	hr = (*pfnCoSetCancelObject)(pUnk);
+	Py_END_ALLOW_THREADS
+	if (FAILED(hr))
+		return PyCom_BuildPyException(hr);
+	Py_INCREF(Py_None);
+	return Py_None;
+}
+
+// @pymethod |pythoncom|CoEnableCallCancellation|Enables call cancellation for synchronous calls on the current thread
+static PyObject *pythoncom_CoEnableCallCancellation(PyObject *self, PyObject *args)
+{
+	// Only param is reserved
+	HRESULT hr;
+	Py_BEGIN_ALLOW_THREADS
+	hr = CoEnableCallCancellation(NULL);
+	Py_END_ALLOW_THREADS
+	if (FAILED(hr))
+		return PyCom_BuildPyException(hr);
+	Py_INCREF(Py_None);
+	return Py_None;
+}
+
+// @pymethod |pythoncom|CoDisableCallCancellation|Disables call cancellation for synchronous calls on the current thread
+static PyObject *pythoncom_CoDisableCallCancellation(PyObject *self, PyObject *args)
+{
+	// Only param is reserved
+	HRESULT hr;
+	Py_BEGIN_ALLOW_THREADS
+	hr = CoDisableCallCancellation(NULL);
+	Py_END_ALLOW_THREADS
+	if (FAILED(hr))
+		return PyCom_BuildPyException(hr);
+	Py_INCREF(Py_None);
+	return Py_None;
+}
+
 
 /* List of module functions */
 // @module pythoncom|A module, encapsulating the OLE automation API
@@ -1968,7 +2068,8 @@ static struct PyMethodDef pythoncom_methods[]=
 #endif // MS_WINCE
 	{ "STGMEDIUM",           Py_NewSTGMEDIUM, 1}, // @pymeth STGMEDIUM|Creates a new <o PySTGMEDIUM> object suitable for the <o PyIDataObject> interface.
 	{ "StgOpenStorage",      pythoncom_StgOpenStorage, 1 },       // @pymeth StgOpenStorage|Opens an existing root storage object in the file system.
-	{ "StgOpenStorageEx",    pythoncom_StgOpenStorageEx, 1 },       // @pymeth StgOpenStorageEx|Access IStorage and IPropertySetStorage interfaces for normal files
+	{ "StgOpenStorageEx",    (PyCFunction)pythoncom_StgOpenStorageEx, METH_KEYWORDS|METH_VARARGS},   // @pymeth StgOpenStorageEx|Access IStorage and IPropertySetStorage interfaces for normal files
+	{ "StgCreateStorageEx",  (PyCFunction)pythoncom_StgCreateStorageEx, METH_KEYWORDS|METH_VARARGS}, // @pymeth StgCreateStorageEx|Creates a new structured storage file or property set
 	{ "TYPEATTR",            Py_NewTYPEATTR, 1}, // @pymeth TYPEATTR|Returns a new <o TYPEATTR> object.
 	{ "VARDESC",             Py_NewVARDESC, 1}, // @pymeth VARDESC|Returns a new <o VARDESC> object.
 	{ "WrapObject",          pythoncom_WrapObject, 1 }, // @pymeth WrapObject|Wraps an object in a gateway.
@@ -1977,6 +2078,12 @@ static struct PyMethodDef pythoncom_methods[]=
 	{ "UnwrapObject",        pythoncom_UnwrapObject, 1 }, // @pymeth UnwrapObject|Unwraps a Python instance in a gateway object.
 	{ "FmtIdToPropStgName",	pythoncom_FmtIdToPropStgName, 1}, //@pymeth FmtIdToPropStgName|Convert a FMTID to its stream name
 	{ "PropStgNameToFmtId",	pythoncom_PropStgNameToFmtId, 1}, //@pymeth PropStgNameToFmtId|Convert property set name to FMTID
+	{ "CoGetCallContext", pythoncom_CoGetCallContext, 1},	// @pymeth CoGetCallContext|Creates interfaces used to access client security settings and perform impersonation 
+	{ "CoGetObjectContext", pythoncom_CoGetObjectContext, 1},	// @pymeth CoGetObjectContext|Creates an interface to interact with the context of the current object
+	{ "CoGetCancelObject", pythoncom_CoGetCancelObject, 1},	// @pymeth CoGetCancelObject|Retrieves an interface used to cancel a pending call
+	{ "CoSetCancelObject", pythoncom_CoSetCancelObject, 1},	// @pymeth CoSetCancelObject|Sets or removes a <o PyICancelMethodCalls> interface to be used on the current thread
+	{ "CoEnableCallCancellation",  pythoncom_CoEnableCallCancellation,  METH_NOARGS},	// @pymeth CoEnableCallCancellation|Enables call cancellation for synchronous calls on the current thread
+	{ "CoDisableCallCancellation", pythoncom_CoDisableCallCancellation, METH_NOARGS},	// @pymeth CoDisableCallCancellation|Disables call cancellation for synchronous calls on the current thread
 	{ NULL, NULL }
 };
 
@@ -2011,8 +2118,9 @@ PYWIN_MODULE_INIT_FUNC(pythoncom)
 	PyObject *obFlags = PySys_GetObject("coinit_flags");
 	// No reference added to obFlags.
 	if (obFlags) {
-		if (PyInt_Check(obFlags))
-			coinit_flags = PyInt_AsLong(obFlags);
+		coinit_flags = PyInt_AsUnsignedLongMask(obFlags);
+		if (coinit_flags == -1 && PyErr_Occurred())
+			PYWIN_MODULE_INIT_RETURN_ERROR;
 	} else
 		PyErr_Clear(); // Error raised by no coinit_flags attribute.
 
@@ -2045,6 +2153,11 @@ PYWIN_MODULE_INIT_FUNC(pythoncom)
 
 	g_obArgNotFound = new PyOleArgNotFound;
 	PyDict_SetItemString(dict, "ArgNotFound", g_obArgNotFound);
+
+// code changed by ssc	
+	g_obNothing = new PyOleNothing;
+	PyDict_SetItemString(dict, "Nothing", g_obNothing);
+// end code changed by ssc
 
 	// Add some symbolic constants to the module   
 	// pycom_Error = PyString_FromString("pythoncom.error");
@@ -2086,8 +2199,13 @@ PYWIN_MODULE_INIT_FUNC(pythoncom)
 
 	// Load function pointers.
 	HMODULE hModOle32 = GetModuleHandle(_T("ole32.dll"));
-	if (hModOle32)
+	if (hModOle32){
 		pfnCoWaitForMultipleHandles = (CoWaitForMultipleHandlesfunc)GetProcAddress(hModOle32, "CoWaitForMultipleHandles");
+		pfnCoGetObjectContext = (CoGetObjectContextfunc)GetProcAddress(hModOle32, "CoGetObjectContext");
+		pfnCoGetCancelObject = (CoGetCancelObjectfunc)GetProcAddress(hModOle32, "CoGetCancelObject");
+		pfnCoCreateInstanceEx = (CoCreateInstanceExfunc)GetProcAddress(hModOle32, "CoCreateInstanceEx");
+		pfnCoInitializeSecurity = (CoInitializeSecurityfunc)GetProcAddress(hModOle32, "CoInitializeSecurity");
+	}
 
 	HMODULE hModurlmon = GetModuleHandle(_T("urlmon.dll"));
 	if (hModurlmon == NULL)
@@ -2244,6 +2362,26 @@ PYWIN_MODULE_INIT_FUNC(pythoncom)
 	ADD_CONSTANT(RPC_C_IMP_LEVEL_IDENTIFY); // RPC_C_IMP_LEVEL_IDENTIFY|The server can obtain the client’s identity. The server can impersonate the client for ACL checking, but cannot access system objects as the client. This information is obtained when the connection is established, not on every call.<nl>Note  GetUserName will fail while impersonating at identify level. The workaround is to impersonate, OpenThreadToken, revert, call GetTokenInformation, and finally, call LookupAccountSid. 
 	ADD_CONSTANT(RPC_C_IMP_LEVEL_IMPERSONATE); // RPC_C_IMP_LEVEL_IMPERSONATE|The server process can impersonate the client's security context while acting on behalf of the client. This information is obtained when the connection is established, not on every call. 
 	ADD_CONSTANT(RPC_C_IMP_LEVEL_DELEGATE); // RPC_C_IMP_LEVEL_DELEGATE|(Not supported in this release.) The server process can impersonate the client's security context while acting on behalf of the client. The server process can also make outgoing calls to other servers while acting on behalf of the client. This information is obtained when the connection is established, not on every call. 
+
+	// Authentication service identifiers
+	ADD_CONSTANT(RPC_C_AUTHN_NONE);
+	ADD_CONSTANT(RPC_C_AUTHN_DCE_PRIVATE);
+	ADD_CONSTANT(RPC_C_AUTHN_DCE_PUBLIC);
+	ADD_CONSTANT(RPC_C_AUTHN_DEC_PUBLIC);
+	ADD_CONSTANT(RPC_C_AUTHN_GSS_NEGOTIATE);
+	ADD_CONSTANT(RPC_C_AUTHN_WINNT);
+	ADD_CONSTANT(RPC_C_AUTHN_GSS_SCHANNEL);
+	ADD_CONSTANT(RPC_C_AUTHN_GSS_KERBEROS);
+	ADD_CONSTANT(RPC_C_AUTHN_MSN);
+	ADD_CONSTANT(RPC_C_AUTHN_DPA);
+	ADD_CONSTANT(RPC_C_AUTHN_MQ);
+	ADD_CONSTANT(RPC_C_AUTHN_DEFAULT);
+
+	// Authorization service identifiers
+	ADD_CONSTANT(RPC_C_AUTHZ_NONE);
+	ADD_CONSTANT(RPC_C_AUTHZ_NAME);
+	ADD_CONSTANT(RPC_C_AUTHZ_DCE);
+	ADD_CONSTANT(RPC_C_AUTHZ_DEFAULT); 
 
 	// Authentication capabilities used with CoInitializeSecurity (EOLE_AUTHENTICATION_CAPABILITIES enum)
 	ADD_CONSTANT(EOAC_NONE);
@@ -2426,7 +2564,7 @@ PYWIN_MODULE_INIT_FUNC(pythoncom)
 		AddConstant(dict, "CLSCTX_SERVER", CLSCTX_INPROC_SERVER| CLSCTX_LOCAL_SERVER );
 		AddConstant(dict, "dcom", 0 );
 	}
-	AddConstant(dict, "__future_currency__", 0);
+
 	PyObject *obfmtid=NULL;
 	obfmtid=PyWinObject_FromIID(FMTID_DocSummaryInformation);
 	PyDict_SetItemString(dict,"FMTID_DocSummaryInformation",obfmtid);

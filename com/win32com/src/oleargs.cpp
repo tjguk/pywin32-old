@@ -216,6 +216,12 @@ BOOL PyCom_VariantFromPyObject(PyObject *obj, VARIANT *var)
 	else if (obj->ob_type == &PyOleEmptyType) {
 		bGoodEmpty = TRUE;
 	}
+// code changed by ssc
+	else if (obj->ob_type == &PyOleNothingType) {
+		V_VT(var) = VT_DISPATCH;
+		V_DISPATCH(var) = NULL;
+	}
+// end code changed by ssc
 	else if (obj->ob_type == &PyOleArgNotFoundType)
 	{
 		// use default parameter
@@ -260,7 +266,8 @@ BOOL PyCom_VariantFromPyObject(PyObject *obj, VARIANT *var)
 			return FALSE;
 		V_VT(var) = VT_RECORD;
 	}
-	else if (strcmp(obj->ob_type->tp_name, "Decimal")==0)
+	// Decimal class from new _decimal module in Python 3.3 shows different name
+	else if (strcmp(obj->ob_type->tp_name, "Decimal")==0 || strcmp(obj->ob_type->tp_name, "decimal.Decimal")==0)
 	{
 		if (!PyObject_AsCurrency(obj, &V_CY(var)))
 			return FALSE;
@@ -1032,18 +1039,10 @@ PythonOleArgHelper::~PythonOleArgHelper()
 					SysFreeString((BSTR)m_pValueHolder);
 				break;
 			case VT_DISPATCH | VT_BYREF:
-				if (m_dispBuf) {
-					PY_INTERFACE_PRECALL;
-					m_dispBuf->Release();
-					PY_INTERFACE_POSTCALL;
-				}
+				PYCOM_RELEASE(m_dispBuf);
 				break;
 			case VT_UNKNOWN | VT_BYREF:
-				if (m_unkBuf) {
-					PY_INTERFACE_PRECALL;
-					m_unkBuf->Release();
-					PY_INTERFACE_POSTCALL;
-				}
+				PYCOM_RELEASE(m_unkBuf);
 				break;
 			case VT_VARIANT | VT_BYREF:
 				if (m_varBuf) {

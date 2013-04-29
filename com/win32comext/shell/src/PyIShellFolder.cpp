@@ -4,8 +4,6 @@
 #include "shell_pch.h"
 #include "PyIShellFolder.h"
 
-extern void *PyShell_AllocMem(ULONG cb);
-
 // @doc - This file contains autoduck documentation
 // ---------------------------------------------------
 //
@@ -38,36 +36,34 @@ PyObject *PyIShellFolder::ParseDisplayName(PyObject *self, PyObject *args)
 		return NULL;
 	// @pyparm <o PyHANDLE>|hwndOwner||Window in which to display any dialogs or message boxes, can be 0
 	// @pyparm <o PyIBindCtx>|pbc||Bind context that affects how parsing is performed, can be None
-	// @pyparm <o PyUNICODE>|DisplayName||Display name to parse, format is dependent on the shell folder.
+	// @pyparm str|DisplayName||Display name to parse, format is dependent on the shell folder.
 	// Desktop folder will accept a file path, as well as guids of the form ::{guid}
 	// Example: '::%s\\::%s' %(shell.CLSID_MyComputer,shell.CLSID_ControlPanel)
 	// @pyparm int|Attributes|0|Combination of shellcon.SFGAO_* constants specifying which attributes should be returned
-	PyObject *obpbcReserved;
-	PyObject *oblpszDisplayName;
+	PyObject *obpbc;
+	PyObject *obDisplayName;
 	HWND hwndOwner;
 	PyObject *obhwndOwner;
-	IBindCtx * pbcReserved;
-	LPOLESTR lpszDisplayName;
+	IBindCtx * pbc;
+	TmpWCHAR DisplayName;
 	ULONG pchEaten = (ULONG)-1;
 	ITEMIDLIST *ppidl;
-	ULONG pdwAttributes = 0;
-	if ( !PyArg_ParseTuple(args, "OOO|k:ParseDisplayName", &obhwndOwner, &obpbcReserved,
-						   &oblpszDisplayName, &pdwAttributes) )
+	ULONG dwAttributes = 0;
+	if ( !PyArg_ParseTuple(args, "OOO|k:ParseDisplayName", &obhwndOwner, &obpbc,
+						   &obDisplayName, &dwAttributes) )
 		return NULL;
 	if (!PyWinObject_AsHANDLE(obhwndOwner, (HANDLE *)&hwndOwner))
 		return NULL;
-	BOOL bPythonIsHappy = TRUE;
-	if (bPythonIsHappy && !PyCom_InterfaceFromPyInstanceOrObject(obpbcReserved, IID_IBindCtx, (void **)&pbcReserved, TRUE /* bNoneOK */))
-		 bPythonIsHappy = FALSE;
-	if (bPythonIsHappy && !PyWinObject_AsBstr(oblpszDisplayName, &lpszDisplayName)) bPythonIsHappy = FALSE;
-	if (!bPythonIsHappy) return NULL;
+	if (!PyWinObject_AsWCHAR(obDisplayName, &DisplayName))
+		return NULL;
+	if (!PyCom_InterfaceFromPyInstanceOrObject(obpbc, IID_IBindCtx, (void **)&pbc, TRUE /* bNoneOK */))
+		return NULL;
+
 	HRESULT hr;
 	PY_INTERFACE_PRECALL;
-	hr = pISF->ParseDisplayName(hwndOwner, pbcReserved, lpszDisplayName, &pchEaten,
-								&ppidl, &pdwAttributes );
-	if (pbcReserved) pbcReserved->Release();
-	SysFreeString(lpszDisplayName);
-
+	hr = pISF->ParseDisplayName(hwndOwner, pbc, DisplayName, &pchEaten,
+								&ppidl, &dwAttributes );
+	if (pbc) pbc->Release();
 	PY_INTERFACE_POSTCALL;
 
 	if ( FAILED(hr) )
@@ -75,7 +71,7 @@ PyObject *PyIShellFolder::ParseDisplayName(PyObject *self, PyObject *args)
 	PyObject *obppidl;
 
 	obppidl = PyObject_FromPIDL(ppidl, TRUE);
-	PyObject *pyretval = Py_BuildValue("lOl", pchEaten, obppidl, pdwAttributes);
+	PyObject *pyretval = Py_BuildValue("lOl", pchEaten, obppidl, dwAttributes);
 	Py_XDECREF(obppidl);
 	return pyretval;
 }
@@ -127,12 +123,15 @@ PyObject *PyIShellFolder::BindToObject(PyObject *self, PyObject *args)
 	void * out;
 	if ( !PyArg_ParseTuple(args, "OOO:BindToObject", &obpidl, &obpbcReserved, &obriid) )
 		return NULL;
-	BOOL bPythonIsHappy = TRUE;
-	if (bPythonIsHappy && !PyObject_AsPIDL(obpidl, &pidl)) bPythonIsHappy = FALSE;
-	if (bPythonIsHappy && !PyCom_InterfaceFromPyInstanceOrObject(obpbcReserved, IID_IBindCtx, (void **)&pbcReserved, TRUE /* bNoneOK */))
-		 bPythonIsHappy = FALSE;
-	if (!PyWinObject_AsIID(obriid, &riid)) bPythonIsHappy = FALSE;
-	if (!bPythonIsHappy) return NULL;	// this could leak the pidl
+	if (!PyWinObject_AsIID(obriid, &riid))
+		return NULL;
+	if (!PyObject_AsPIDL(obpidl, &pidl))
+		return NULL;
+	if (!PyCom_InterfaceFromPyInstanceOrObject(obpbcReserved, IID_IBindCtx, (void **)&pbcReserved, TRUE /* bNoneOK */)){
+		PyObject_FreePIDL(pidl);
+		return NULL;
+	}
+
 	HRESULT hr;
 	PY_INTERFACE_PRECALL;
 	hr = pISF->BindToObject( pidl, pbcReserved, riid, &out );
@@ -252,9 +251,8 @@ PyObject *PyIShellFolder::CreateViewObject(PyObject *self, PyObject *args)
 		return NULL;
 	if (!PyWinObject_AsHANDLE(obhwndOwner, (HANDLE *)&hwndOwner))
 		return NULL;
-	BOOL bPythonIsHappy = TRUE;
-	if (!PyWinObject_AsIID(obriid, &riid)) bPythonIsHappy = FALSE;
-	if (!bPythonIsHappy) return NULL;
+	if (!PyWinObject_AsIID(obriid, &riid))
+		return NULL;
 	HRESULT hr;
 	PY_INTERFACE_PRECALL;
 	hr = pISF->CreateViewObject( hwndOwner, riid, &out );
@@ -282,9 +280,9 @@ PyObject *PyIShellFolder::GetAttributesOf(PyObject *self, PyObject *args)
 	ULONG rgfInOut;
 	if ( !PyArg_ParseTuple(args, "Ol:GetAttributesOf", &obpidl, &rgfInOut) )
 		return NULL;
-	BOOL bPythonIsHappy = TRUE;
-	if (bPythonIsHappy && !PyObject_AsPIDLArray(obpidl, &cidl, &pidl)) bPythonIsHappy = FALSE;
-	if (!bPythonIsHappy) return NULL;
+
+	if (!PyObject_AsPIDLArray(obpidl, &cidl, &pidl))
+		return NULL;
 	HRESULT hr;
 	PY_INTERFACE_PRECALL;
 	hr = pISF->GetAttributesOf( cidl, pidl, &rgfInOut );
@@ -298,6 +296,7 @@ PyObject *PyIShellFolder::GetAttributesOf(PyObject *self, PyObject *args)
 }
 
 // @pymethod int, <o PyIUnknown>|PyIShellFolder|GetUIObjectOf|Creates an interface to one or more items in a shell folder
+// @rdesc Returns the Reserved parameter and the requested interface
 PyObject *PyIShellFolder::GetUIObjectOf(PyObject *self, PyObject *args)
 {
 	IShellFolder *pISF = GetI(self);
@@ -306,7 +305,11 @@ PyObject *PyIShellFolder::GetUIObjectOf(PyObject *self, PyObject *args)
 	// @pyparm <o PyHANDLE>|hwndOwner||Specifies a window in which to display any required dialogs or errors, can be 0
 	// @pyparm (<o PyIDL>,...)|pidl||A sequence of single-level pidls identifying items in the folder
 	// @pyparm <o PyIID>|riid||The interface to create, one of IID_IContextMenu, IID_IContextMenu2, IID_IDataObject, IID_IDropTarget, IID_IExtractIcon, IID_IQueryInfo 
-	// @pyparm int|rgfReserved|0|Reserved, use 0 if passed in
+	// @pyparm int|Reserved|0|Reserved, use 0 if passed in
+	// @pyparm <o PyIID>|iidout|riid|The interface to return.  Can be used in the case where there is not a
+	//  python wrapper for the desired interface.  You must make certain that the interface identified by riid
+	//  actually supports the iidout interface, or Bad Things Will Happen.
+	//  It should always be safe to return <o PyIUnknown>, which is the base for all interfaces.
 	PyObject *obpidl;
 	PyObject *obriid;
 	PyObject *obiidout = NULL;
@@ -315,20 +318,22 @@ PyObject *PyIShellFolder::GetUIObjectOf(PyObject *self, PyObject *args)
 	UINT cidl;
 	LPCITEMIDLIST *pidl;
 	IID riid, iidout;
-	UINT rgfInOut;
+	UINT rgfInOut = 0;
 	void * out;
-	if ( !PyArg_ParseTuple(args, "OOOl|O:GetUIObjectOf", &obhwndOwner, &obpidl, &obriid, &rgfInOut, &obiidout) )
+	if ( !PyArg_ParseTuple(args, "OOO|lO:GetUIObjectOf", &obhwndOwner, &obpidl, &obriid, &rgfInOut, &obiidout) )
 		return NULL;
 	if (!PyWinObject_AsHANDLE(obhwndOwner, (HANDLE *)&hwndOwner))
 		return NULL;
-	BOOL bPythonIsHappy = TRUE;
-	if (!PyWinObject_AsIID(obriid, &riid)) bPythonIsHappy = FALSE;
+	if (!PyWinObject_AsIID(obriid, &riid))
+		return NULL;
 	if (obiidout==NULL)
 		iidout = riid;
 	else
-		if (!PyWinObject_AsIID(obiidout, &iidout)) bPythonIsHappy = FALSE;
-	if (bPythonIsHappy && !PyObject_AsPIDLArray(obpidl, &cidl, &pidl)) bPythonIsHappy = FALSE;
-	if (!bPythonIsHappy) return NULL;
+		if (!PyWinObject_AsIID(obiidout, &iidout))
+			return NULL;
+	if (!PyObject_AsPIDLArray(obpidl, &cidl, &pidl))
+		return NULL;
+
 	HRESULT hr;
 	PY_INTERFACE_PRECALL;
 	hr = pISF->GetUIObjectOf( hwndOwner, cidl, pidl, riid, &rgfInOut, &out );
@@ -338,12 +343,7 @@ PyObject *PyIShellFolder::GetUIObjectOf(PyObject *self, PyObject *args)
 
 	if ( FAILED(hr) )
 		return PyCom_BuildPyException(hr, pISF, IID_IShellFolder );
-	PyObject *obout;
-
-	obout = PyCom_PyObjectFromIUnknown((IUnknown *)out, iidout, FALSE);
-	PyObject *pyretval = Py_BuildValue("lO", rgfInOut, obout);
-	Py_XDECREF(obout);
-	return pyretval;
+	return Py_BuildValue("lN", rgfInOut, PyCom_PyObjectFromIUnknown((IUnknown *)out, iidout, FALSE));
 }
 
 // @pymethod str|PyIShellFolder|GetDisplayNameOf|Returns the display name of an item within this shell folder
@@ -365,13 +365,14 @@ PyObject *PyIShellFolder::GetDisplayNameOf(PyObject *self, PyObject *args)
 	STRRET out;
 	PY_INTERFACE_PRECALL;
 	hr = pISF->GetDisplayNameOf( pidl, uFlags, &out );
-	PyObject_FreePIDL(pidl);
-
 	PY_INTERFACE_POSTCALL;
-
+	PyObject *ret;
 	if ( FAILED(hr) )
-		return PyCom_BuildPyException(hr, pISF, IID_IShellFolder );
-	return PyObject_FromSTRRET(&out, pidl, TRUE);
+		ret = PyCom_BuildPyException(hr, pISF, IID_IShellFolder);
+	else
+		ret = PyObject_FromSTRRET(&out, pidl, TRUE);
+	PyObject_FreePIDL(pidl);
+	return ret;
 }
 
 // @pymethod <o PyIDL>|PyIShellFolder|SetNameOf|Sets the display name of an item and changes its PIDL
@@ -383,40 +384,37 @@ PyObject *PyIShellFolder::SetNameOf(PyObject *self, PyObject *args)
 		return NULL;
 	// @pyparm HWND|hwndOwner||Window in which to display any message boxes or dialogs, can be 0
 	// @pyparm <o PyIDL>|pidl||PIDL that identifies the item relative to the parent folder
-	// @pyparm <o unicode>|lpszName||New name for the item
+	// @pyparm str|Name||New name for the item
 	// @pyparm int|Flags||Combination of shellcon.SHGDM_* values
 	PyObject *obpidl=NULL, *ret=NULL;
-	PyObject *oblpszName=NULL;
+	PyObject *obName=NULL;
 	PyObject *obhwndOwner;
 	HWND hwndOwner;
 	ITEMIDLIST *pidl=NULL;
 	ITEMIDLIST *pidlRet = NULL;
-	LPOLESTR lpszName=NULL;
+	TmpWCHAR Name;
 	DWORD flags;
 
-	if ( !PyArg_ParseTuple(args, "OOOl:SetNameOf", &obhwndOwner, &obpidl, &oblpszName, &flags) )
+	if ( !PyArg_ParseTuple(args, "OOOl:SetNameOf", &obhwndOwner, &obpidl, &obName, &flags) )
 		return NULL;
 	if (!PyWinObject_AsHANDLE(obhwndOwner, (HANDLE *)&hwndOwner))
 		return NULL;
+	if (!PyWinObject_AsWCHAR(obName, &Name))
+		return NULL;
+	if (!PyObject_AsPIDL(obpidl, &pidl))
+		return NULL;
 
-	if (PyObject_AsPIDL(obpidl, &pidl)&&
-		PyWinObject_AsBstr(oblpszName, &lpszName)){
-		HRESULT hr;
-		PY_INTERFACE_PRECALL;
-		hr = pISF->SetNameOf( hwndOwner, pidl, lpszName, (SHGDNF)flags, &pidlRet );
-		PY_INTERFACE_POSTCALL;
-		if ( FAILED(hr) )
-			PyCom_BuildPyException(hr, pISF, IID_IShellFolder );
-		else
-			ret = PyObject_FromPIDL(pidlRet, TRUE);
-		}
-
+	HRESULT hr;
+	PY_INTERFACE_PRECALL;
+	hr = pISF->SetNameOf( hwndOwner, pidl, Name, (SHGDNF)flags, &pidlRet );
+	PY_INTERFACE_POSTCALL;
 	PyObject_FreePIDL(pidl);
-	SysFreeString(lpszName);
-	return ret;
+	if ( FAILED(hr) )
+		return PyCom_BuildPyException(hr, pISF, IID_IShellFolder );
+	return PyObject_FromPIDL(pidlRet, TRUE);
 }
 
-// @object PyIShellFolder|Description of the interface
+// @object PyIShellFolder|Interface that represents an Explorer folder
 static struct PyMethodDef PyIShellFolder_methods[] =
 {
 	{ "ParseDisplayName", PyIShellFolder::ParseDisplayName, 1 }, // @pymeth ParseDisplayName|Returns the PIDL of an item in a shell folder
@@ -672,7 +670,7 @@ STDMETHODIMP PyGShellFolder::GetDisplayNameOf(
 	if (FAILED(hr)) return hr;
 	// Process the Python results, and convert back to the real params
 	out->uType = STRRET_WSTR;
-	if (!PyWinObject_AsPfnAllocatedWCHAR(result, PyShell_AllocMem, &out->pOleStr))
+	if (!PyWinObject_AsTaskAllocatedWCHAR(result, &out->pOleStr))
 		hr = PyCom_SetAndLogCOMErrorFromPyException(szMethodName, IID_IShellFolder);
 	Py_DECREF(result);
 	return hr;

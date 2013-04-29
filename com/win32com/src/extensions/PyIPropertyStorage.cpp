@@ -3,6 +3,7 @@
 
 #include "stdafx.h"
 #include "PythonCOM.h"
+#include "PythonCOMServer.h"
 
 #ifndef NO_PYCOM_IPROPERTYSTORAGE
 #include "PyIPropertyStorage.h"
@@ -10,67 +11,88 @@
 // @doc - This file contains autoduck documentation
 // ---------------------------------------------------
 
-// @object PROPSPEC|Identifies a property.  Can be either an int property id, or a str/unicode property name.
-BOOL PyObject_AsPROPSPECs( PyObject *ob, PROPSPEC **ppRet, ULONG *pcRet)
+void PyObject_FreePROPSPECs(PROPSPEC *pFree, ULONG cFree)
 {
-	BOOL ret=FALSE;
-	DWORD len, i;
-	PyObject *tuple=PyWinSequence_Tuple(ob, &len);
-	if (tuple==NULL)
-		return FALSE;
+	if (!pFree)
+		return;
+	for (ULONG i=0; i<cFree; i++)
+		if (pFree[i].ulKind == PRSPEC_LPWSTR && pFree[i].lpwstr)
+			PyWinObject_FreeWCHAR(pFree[i].lpwstr);
+	free(pFree);
+}
 
-	// First count the items, and the total string space we need.
-	size_t cChars = 0;
-	for (i=0;i<len;i++) {
-		PyObject *sub = PyTuple_GET_ITEM(tuple, i);
-		if (PyUnicode_Check(sub))
-			cChars += PyUnicode_GET_SIZE(sub) + 1;
-		else if (PyString_Check(sub))
-			cChars += PyString_Size(sub) + 1;
-		else if (PyInt_Check(sub))
-			;	// PROPID is a ULONG, so this may fail for values that require a python long
-		else {
-			PyErr_SetString(PyExc_TypeError, "PROPSPECs must be a sequence of strings or integers");
-			goto cleanup;
+PyObject *PyWinObject_FromPROPIDs(const PROPID *propids, ULONG cpropids)
+{
+	PyObject *ret=PyTuple_New(cpropids);
+	if (ret==NULL)
+		return NULL;
+	for (ULONG i=0; i < cpropids; i++){
+		PyObject *item=PyLong_FromUnsignedLong(propids[i]);
+		if (item==NULL){
+			Py_DECREF(ret);
+			return NULL;
+			}
+		PyTuple_SET_ITEM(ret, i, item);
 		}
-	}
-	size_t numBytes;
-	numBytes = (sizeof(PROPSPEC) * len) + (sizeof(WCHAR) * cChars);
-	PROPSPEC *pRet;
-	pRet = (PROPSPEC *)malloc(numBytes);
-	if (pRet==NULL) {
-		PyErr_SetString(PyExc_MemoryError, "allocating PROPSPECs");
-		goto cleanup;
-	}
-	WCHAR *curBuf;
-	curBuf = (WCHAR *)(pRet+len);
-	for (i=0;i<len;i++) {
-		PyObject *sub = PyTuple_GET_ITEM(tuple, i);
-		BSTR bstr;
-		if (PyWinObject_AsBstr(sub, &bstr)) {
-			pRet[i].ulKind = PRSPEC_LPWSTR;
-			pRet[i].lpwstr = curBuf;
-			wcscpy( curBuf, bstr);
-			curBuf += wcslen(curBuf) + 1;
-			PyWinObject_FreeBstr(bstr);
-		} else {
-			PyErr_Clear();
-			pRet[i].ulKind = PRSPEC_PROPID;
-			pRet[i].propid = PyInt_AsLong(sub);
-		}
-	}
-	ret=TRUE;
-	*ppRet = pRet;
-	*pcRet = len;
-cleanup:
-	Py_DECREF(tuple);
 	return ret;
 }
 
-void PyObject_FreePROPSPECs(PROPSPEC *pFree, ULONG /*cFree*/)
+// @object PROPSPEC|Identifies a property.  Can be either an int property id, or a str/unicode property name.
+BOOL PyWinObject_AsPROPSPECs( PyObject *ob, PROPSPEC **ppRet, ULONG *pcRet)
 {
-	if (pFree)
-		free(pFree);
+	TmpPyObject tuple=PyWinSequence_Tuple(ob, pcRet);
+	if (tuple==NULL)
+		return FALSE;
+	size_t numBytes = sizeof(PROPSPEC) * *pcRet;
+	*ppRet = (PROPSPEC *)malloc(numBytes);
+	if (*ppRet==NULL) {
+		PyErr_NoMemory();
+		return FALSE;
+	}
+	ZeroMemory(*ppRet, numBytes);
+	for (DWORD i=0; i<*pcRet; i++) {
+		PyObject *sub = PyTuple_GET_ITEM((PyObject *)tuple, i);
+		(*ppRet)[i].propid = PyInt_AsUnsignedLongMask(sub);
+		if ((*ppRet)[i].propid != (ULONG)-1 || !PyErr_Occurred())
+			(*ppRet)[i].ulKind = PRSPEC_PROPID;
+		else{
+			PyErr_Clear();
+			(*ppRet)[i].lpwstr = NULL;
+			if (PyWinObject_AsWCHAR(sub, &(*ppRet)[i].lpwstr))
+				(*ppRet)[i].ulKind = PRSPEC_LPWSTR;
+			else{
+				PyErr_Clear();
+				PyErr_SetString(PyExc_TypeError, "PROPSPECs must be a sequence of strings or integers");
+				PyObject_FreePROPSPECs(*ppRet, *pcRet);
+				*ppRet=NULL;
+				return FALSE;
+				}
+			}
+		}
+	return TRUE;
+}
+
+PyObject *PyWinObject_FromPROPSPECs(const PROPSPEC *propspecs, ULONG cpropspecs)
+{
+	PyObject *ret = PyTuple_New(cpropspecs);
+	if (ret == NULL)
+		return NULL;
+	PyObject *item;
+	for (DWORD i=0; i<cpropspecs; i++) {
+		item = NULL;
+		if (propspecs[i].ulKind == PRSPEC_PROPID)
+			item = PyLong_FromUnsignedLong(propspecs[i].propid);
+		else if (propspecs[i].ulKind == PRSPEC_LPWSTR)
+			item = PyWinObject_FromWCHAR(propspecs[i].lpwstr);
+		else
+			PyErr_SetString(PyExc_NotImplementedError, "Unknown PROPSPEC type");
+		if (item == NULL){
+			Py_DECREF(ret);
+			return NULL;
+			}
+		PyTuple_SET_ITEM(ret, i, item);
+		}
+	return ret;
 }
 
 // Generic conversion from VT_VECTOR arrays to list.
@@ -334,15 +356,43 @@ PyObject *PyObject_FromPROPVARIANTs( PROPVARIANT *pVars, ULONG cVars )
 
 BOOL PyObject_AsPROPVARIANT(PyObject *ob, PROPVARIANT *pVar)
 {
-	if (ob==Py_True) {
+	if (ob==Py_None) {
+		PropVariantInit(pVar);
+	} else if (ob==Py_True) {
 		pVar->boolVal = -1;
 		pVar->vt = VT_BOOL;
 	} else if (ob==Py_False) {
 		pVar->boolVal = 0;
 		pVar->vt = VT_BOOL;
+	} else if (PyLong_Check(ob)) {
+		pVar->hVal.QuadPart = PyLong_AsLongLong(ob);
+		if (pVar->hVal.QuadPart == -1 && PyErr_Occurred()){
+		// Could still fit in an unsigned long long
+			PyErr_Clear();
+			pVar->uhVal.QuadPart = PyLong_AsUnsignedLongLong(ob);
+			if (pVar->uhVal.QuadPart == -1 && PyErr_Occurred())
+				return FALSE;
+			pVar->vt = VT_UI8;
+		}
+		else{
+			pVar->vt=VT_I8;
+			// Could still fit in a regular long
+			if (pVar->hVal.QuadPart >= LONG_MIN && pVar->hVal.QuadPart <= LONG_MAX){
+				pVar->lVal = (long)pVar->hVal.QuadPart;
+				pVar->vt = VT_I4;
+			}
+			// ... or an unsigned long
+			else if (pVar->hVal.QuadPart >=0 && pVar->hVal.QuadPart <= ULONG_MAX){
+				pVar->ulVal = (unsigned long)pVar->hVal.QuadPart;
+				pVar->vt = VT_UI4;
+			}
+		}
+#if (PY_VERSION_HEX < 0x03000000)
+	// Not needed in Py3k, as PyInt_Check is defined to PyLong_Check
 	} else if (PyInt_Check(ob)) {
 		pVar->lVal = PyInt_AsLong(ob);
 		pVar->vt = VT_I4;
+#endif
 	} else if (PyFloat_Check(ob)) {
 		pVar->dblVal = PyFloat_AsDouble(ob);
 		pVar->vt = VT_R8;
@@ -398,6 +448,27 @@ cleanup:
 	return ret;
 }
 
+// Same conversion as PyObject_AsPROPVARIANTs, but PROPVARIANT array is allocated by caller
+BOOL PyObject_AsPreallocatedPROPVARIANTs(PyObject *ob, PROPVARIANT *propvars, ULONG cpropvars)
+{
+	DWORD len, i;
+	TmpPyObject tuple=PyWinSequence_Tuple(ob, &len);
+	if (tuple==NULL)
+		return FALSE;
+	if (len != cpropvars){
+		PyErr_SetString(PyExc_ValueError, "Sequence not of required length");
+		return FALSE;
+		}
+	for (i=0; i<cpropvars; i++) {
+		PyObject *sub = PyTuple_GET_ITEM((PyObject *)tuple, i);
+		if (!PyObject_AsPROPVARIANT(sub, &propvars[i]))
+			for (; i--;)
+				PropVariantClear(&propvars[i]);
+			return FALSE;
+		}
+	return TRUE;
+}
+
 BOOL PyObject_AsPROPIDs(PyObject *ob, PROPID **ppRet, ULONG *pcRet)
 {
 	// PROPID and DWORD are both unsigned long
@@ -428,7 +499,8 @@ PyIPropertyStorage::~PyIPropertyStorage()
 	return (IPropertyStorage *)PyIUnknown::GetI(self);
 }
 
-// @pymethod |PyIPropertyStorage|ReadMultiple|Reads specified properties from the current property set.
+// @pymethod (object, ...)|PyIPropertyStorage|ReadMultiple|Reads specified properties from the current property set.
+// @rdesc Returned values are automatically converted to an appropriate python type
 PyObject *PyIPropertyStorage::ReadMultiple(PyObject *self, PyObject *args)
 {
 	IPropertyStorage *pIPS = GetI(self);
@@ -440,7 +512,7 @@ PyObject *PyIPropertyStorage::ReadMultiple(PyObject *self, PyObject *args)
 		return NULL;
 	ULONG cProps;
 	PROPSPEC *pProps;
-	if (!PyObject_AsPROPSPECs( props, &pProps, &cProps))
+	if (!PyWinObject_AsPROPSPECs( props, &pProps, &cProps))
 		return NULL;
 	PROPVARIANT *pPropVars = new PROPVARIANT[cProps];
 	if (pPropVars==NULL) {
@@ -493,7 +565,7 @@ PyObject *PyIPropertyStorage::WriteMultiple(PyObject *self, PyObject *args)
 	if ( !PyArg_ParseTuple(args, "OO|l:WriteMultiple", &obProps, &obValues, &minId))
 		return NULL;
 	
-	if (!PyObject_AsPROPSPECs( obProps, &pProps, &cProps))
+	if (!PyWinObject_AsPROPSPECs( obProps, &pProps, &cProps))
 		goto cleanup;
 	if (!PyObject_AsPROPVARIANTs( obValues, &pVals, &cVals ))
 		goto cleanup;
@@ -535,7 +607,7 @@ PyObject *PyIPropertyStorage::DeleteMultiple(PyObject *self, PyObject *args)
 		return NULL;
 	ULONG cProps;
 	PROPSPEC *pProps;
-	if (!PyObject_AsPROPSPECs( props, &pProps, &cProps))
+	if (!PyWinObject_AsPROPSPECs( props, &pProps, &cProps))
 		return NULL;
 
 	HRESULT hr;
@@ -552,7 +624,7 @@ PyObject *PyIPropertyStorage::DeleteMultiple(PyObject *self, PyObject *args)
 
 }
 
-// @pymethod |PyIPropertyStorage|ReadPropertyNames|Retrieves any existing string names for the specified property identifiers.
+// @pymethod (str,...)|PyIPropertyStorage|ReadPropertyNames|Retrieves any existing string names for the specified property identifiers.
 PyObject *PyIPropertyStorage::ReadPropertyNames(PyObject *self, PyObject *args)
 {
 	IPropertyStorage *pIPS = GetI(self);
@@ -688,7 +760,7 @@ PyObject *PyIPropertyStorage::Commit(PyObject *self, PyObject *args)
 	IPropertyStorage *pIPS = GetI(self);
 	if ( pIPS == NULL )
 		return NULL;
-	// @pyparm int|grfCommitFlags||Combination of STGC_* flags
+	// @pyparm int|CommitFlags||Combination of storagecon.STGC_* flags
 	DWORD grfCommitFlags;
 	if ( !PyArg_ParseTuple(args, "l:Commit", &grfCommitFlags) )
 		return NULL;
@@ -740,12 +812,7 @@ PyObject *PyIPropertyStorage::Enum(PyObject *self, PyObject *args)
 
 	if ( FAILED(hr) )
 		return PyCom_BuildPyException(hr, pIPS, IID_IPropertyStorage);
-	PyObject *obppenum;
-
-	obppenum = PyCom_PyObjectFromIUnknown(ppenum, IID_IEnumSTATPROPSTG, FALSE);
-	PyObject *pyretval = Py_BuildValue("O", obppenum);
-	Py_XDECREF(obppenum);
-	return pyretval;
+	return PyCom_PyObjectFromIUnknown(ppenum, IID_IEnumSTATPROPSTG, FALSE);
 }
 
 // @pymethod |PyIPropertyStorage|SetTimes|Sets the creation, last access, and modification time
@@ -755,35 +822,42 @@ PyObject *PyIPropertyStorage::SetTimes(PyObject *self, PyObject *args)
 	IPropertyStorage *pIPS = GetI(self);
 	if ( pIPS == NULL )
 		return NULL;
-	// @pyparm <o PyTime>|pctime||Creation time
-	// @pyparm <o PyTime>|patime||Last access time
-	// @pyparm <o PyTime>|pmtime||Modification time
-	PyObject *obpctime;
-	PyObject *obpatime;
-	PyObject *obpmtime;
-	FILETIME pctime;
-	FILETIME patime;
-	FILETIME pmtime;
-	if ( !PyArg_ParseTuple(args, "OOO:SetTimes", &obpctime, &obpatime, &obpmtime) )
+	// @pyparm <o PyTime>|ctime||Creation time, or None for no change
+	// @pyparm <o PyTime>|atime||Last access time, or None for no change
+	// @pyparm <o PyTime>|mtime||Modification time, or None for no change
+	PyObject *obctime;
+	PyObject *obatime;
+	PyObject *obmtime;
+	FILETIME ctime, *pctime=NULL;
+	FILETIME atime, *patime=NULL;
+	FILETIME mtime, *pmtime=NULL;
+	if ( !PyArg_ParseTuple(args, "OOO:SetTimes", &obctime, &obatime, &obmtime) )
 		return NULL;
-	BOOL bPythonIsHappy = TRUE;
-	if (!PyWinObject_AsFILETIME(obpctime, &pctime))
-		return NULL;
-	if (!PyWinObject_AsFILETIME(obpatime, &patime))
-		return NULL;
-	if (!PyWinObject_AsFILETIME(obpmtime, &pmtime))
-		return NULL;
+	if (obctime != Py_None){
+		if (!PyWinObject_AsFILETIME(obctime, &ctime))
+			return NULL;
+		pctime = &ctime;
+		}
+	if (obatime != Py_None){
+		if (!PyWinObject_AsFILETIME(obatime, &atime))
+			return NULL;
+		patime = &atime;
+		}
+	if (obmtime != Py_None){
+		if (!PyWinObject_AsFILETIME(obmtime, &mtime))
+			return NULL;
+		pmtime = &mtime;
+		}
 
 	HRESULT hr;
 	PY_INTERFACE_PRECALL;
-	hr = pIPS->SetTimes( &pctime, &patime, &pmtime );
+	hr = pIPS->SetTimes(pctime, patime, pmtime);
 	PY_INTERFACE_POSTCALL;
 
 	if ( FAILED(hr) )
 		return PyCom_BuildPyException(hr, pIPS, IID_IPropertyStorage);
 	Py_INCREF(Py_None);
 	return Py_None;
-
 }
 
 // @pymethod |PyIPropertyStorage|SetClass|Sets the GUID for the property set
@@ -811,7 +885,8 @@ PyObject *PyIPropertyStorage::SetClass(PyObject *self, PyObject *args)
 
 }
 
-// @pymethod |PyIPropertyStorage|Stat|Returns various infomation about the property set
+// @pymethod tuple|PyIPropertyStorage|Stat|Returns various infomation about the property set
+// @rdesc Returns a tuple representing a STATPROPSETSTG struct.
 PyObject *PyIPropertyStorage::Stat(PyObject *self, PyObject *args)
 {
 	IPropertyStorage *pIPS = GetI(self);
@@ -830,7 +905,8 @@ PyObject *PyIPropertyStorage::Stat(PyObject *self, PyObject *args)
 	return PyCom_PyObjectFromSTATPROPSETSTG(&p);
 }
 
-// @object PyIPropertyStorage|Description of the interface
+// @object PyIPropertyStorage|Structured storage object that contains a set of properties.
+//	Supports iteration to list properties.
 static struct PyMethodDef PyIPropertyStorage_methods[] =
 {
 	{ "ReadMultiple", PyIPropertyStorage::ReadMultiple, 1 }, // @pymeth ReadMultiple|Reads specified properties from the current property set.
@@ -854,5 +930,252 @@ PyComEnumProviderTypeObject PyIPropertyStorage::type("PyIPropertyStorage",
 		PyIPropertyStorage_methods,
 		GET_PYCOM_CTOR(PyIPropertyStorage),
 		"Enum");
+
+// ---------------------------------------------------
+//
+// Gateway Implementation
+STDMETHODIMP PyGPropertyStorage::ReadMultiple(
+		/* [in] */ ULONG cpspec,
+		/* [size_is][in] */ const PROPSPEC rgpspec[],
+		/* [size_is][out] */ PROPVARIANT rgpropvar[])
+{
+	PY_GATEWAY_METHOD;
+	PyObject *obpropspecs = PyWinObject_FromPROPSPECs(rgpspec, cpspec);
+	if (obpropspecs==NULL)
+		return MAKE_PYCOM_GATEWAY_FAILURE_CODE("ReadMultiple");
+	PyObject *result;
+	HRESULT hr=InvokeViaPolicy("ReadMultiple", &result, "(O)", obpropspecs);
+	Py_DECREF(obpropspecs);
+	if (FAILED(hr))
+		return hr;
+	if (!PyObject_AsPreallocatedPROPVARIANTs(result, rgpropvar, cpspec))
+		hr = MAKE_PYCOM_GATEWAY_FAILURE_CODE("ReadMultiple");
+	Py_DECREF(result);
+	return hr;
+}
+
+STDMETHODIMP PyGPropertyStorage::WriteMultiple(
+		/* [in] */ ULONG cpspec,
+		/* [size_is][in] */ const PROPSPEC rgpspec[],
+		/* [size_is][in] */ const PROPVARIANT rgpropvar[],
+		/* [in] */ PROPID propidNameFirst)
+{
+	PY_GATEWAY_METHOD;
+	HRESULT hr;
+	{
+	TmpPyObject obpropspecs = PyWinObject_FromPROPSPECs(rgpspec, cpspec);
+	if (obpropspecs==NULL)
+		return MAKE_PYCOM_GATEWAY_FAILURE_CODE("WriteMultiple");
+	TmpPyObject obpropvars = PyObject_FromPROPVARIANTs((PROPVARIANT *)rgpropvar, cpspec);
+	if (obpropvars==NULL)
+		return MAKE_PYCOM_GATEWAY_FAILURE_CODE("WriteMultiple");
+	hr=InvokeViaPolicy("WriteMultiple", NULL, "OOk", obpropspecs, obpropvars, propidNameFirst);
+	}
+	return hr;
+}
+
+STDMETHODIMP PyGPropertyStorage::DeleteMultiple(
+		/* [in] */ ULONG cpspec,
+		/* [size_is][in] */ const PROPSPEC rgpspec[])
+{
+	PY_GATEWAY_METHOD;
+	PyObject *obpropspecs = PyWinObject_FromPROPSPECs(rgpspec, cpspec);
+	if (obpropspecs==NULL)
+		return MAKE_PYCOM_GATEWAY_FAILURE_CODE("DeleteMultiple");
+	HRESULT hr=InvokeViaPolicy("DeleteMultiple", NULL, "O", cpspec);
+	Py_DECREF(obpropspecs);
+	return hr;
+}
+
+// Converts a sequence of strings into a caller-allocated array of WCHAR pointers,
+// each of which is allocated using CoTaskMemAlloc
+BOOL PyWinObject_AsTaskAllocatedWCHARArray(PyObject *str_seq, LPWSTR *wchars, ULONG str_cnt)
+{
+	TmpPyObject str_tuple;
+	ULONG seq_size, tuple_index;
+	ZeroMemory(wchars, str_cnt * sizeof(WCHAR *));
+	if ((str_tuple=PyWinSequence_Tuple(str_seq, &seq_size))==NULL)
+		return FALSE;
+	if (seq_size != str_cnt){
+		PyErr_SetString(PyExc_ValueError, "Sequence not of required length");
+		return FALSE;
+		}
+	for (tuple_index=0; tuple_index<str_cnt; tuple_index++){
+		PyObject *tuple_item=PyTuple_GET_ITEM((PyObject *)str_tuple, tuple_index);
+		if (!PyWinObject_AsTaskAllocatedWCHAR(tuple_item, &wchars[tuple_index], FALSE)){
+			for (tuple_index=0; tuple_index<str_cnt; tuple_index++)
+				if (wchars[tuple_index])
+					CoTaskMemFree(wchars[tuple_index]);
+			return FALSE;
+			}
+		}
+	return TRUE;
+}
+
+STDMETHODIMP PyGPropertyStorage::ReadPropertyNames(
+		/* [in] */ ULONG cpropid,
+		/* [size_is][in] */ const PROPID rgpropid[],
+		/* [size_is][out] */ LPOLESTR rglpwstrName[])
+{
+	PY_GATEWAY_METHOD;
+	PyObject *obpropids = PyWinObject_FromPROPIDs(rgpropid, cpropid);
+	if (obpropids==NULL)
+		return MAKE_PYCOM_GATEWAY_FAILURE_CODE("ReadPropertyNames");
+	PyObject *result;
+	HRESULT hr=InvokeViaPolicy("ReadPropertyNames", &result, "O", obpropids);
+	Py_DECREF(obpropids);
+	if (FAILED(hr))
+		return hr;
+	// Process the Python results, and convert back to the real params
+	if (!PyWinObject_AsTaskAllocatedWCHARArray(result, rglpwstrName, cpropid))
+		hr = MAKE_PYCOM_GATEWAY_FAILURE_CODE("ReadPropertyNames");
+	Py_DECREF(result);
+	return hr;
+}
+
+PyObject *PyWinObject_FromWCHARArray(const LPOLESTR names[], ULONG cnames)
+{
+	PyObject *ret = PyTuple_New(cnames);
+	if (ret == NULL)
+		return NULL;
+	PyObject *item;
+	for (ULONG i=0; i<cnames; i++){
+		item = PyWinObject_FromWCHAR(names[i]);
+		if (item == NULL){
+			Py_DECREF(ret);
+			return NULL;
+			}
+		PyTuple_SET_ITEM(ret, i, item);
+		}
+	return ret;
+}
+
+STDMETHODIMP PyGPropertyStorage::WritePropertyNames(
+		/* [in] */ ULONG cpropid,
+		/* [size_is][in] */ const PROPID rgpropid[],
+		/* [size_is][in] */ const LPOLESTR rglpwstrName[])
+{
+	PY_GATEWAY_METHOD;
+	{	// Scope so Tmp objects are DECREF'ed before lock released
+	TmpPyObject obpropids = PyWinObject_FromPROPIDs(rgpropid, cpropid);
+	if (obpropids==NULL)
+		return MAKE_PYCOM_GATEWAY_FAILURE_CODE("WritePropertyNames");
+	TmpPyObject obnames = PyWinObject_FromWCHARArray(rglpwstrName, cpropid);
+	if (obnames==NULL)
+		return MAKE_PYCOM_GATEWAY_FAILURE_CODE("WritePropertyNames");
+	return InvokeViaPolicy("WritePropertyNames", NULL, "OO", obpropids, obnames);
+	}
+}
+
+STDMETHODIMP PyGPropertyStorage::DeletePropertyNames(
+		/* [in] */ ULONG cpropid,
+		/* [size_is][in] */ const PROPID rgpropid[])
+{
+	PY_GATEWAY_METHOD;
+	PyObject *obpropids = PyWinObject_FromPROPIDs(rgpropid, cpropid);
+	if (obpropids==NULL)
+		return MAKE_PYCOM_GATEWAY_FAILURE_CODE("DeletePropertyNames");
+	HRESULT hr=InvokeViaPolicy("DeletePropertyNames", NULL, "O", obpropids);
+	Py_DECREF(obpropids);
+	return hr;
+}
+
+STDMETHODIMP PyGPropertyStorage::Commit(
+		/* [in] */ DWORD grfCommitFlags)
+{
+	PY_GATEWAY_METHOD;
+	HRESULT hr=InvokeViaPolicy("Commit", NULL, "l", grfCommitFlags);
+	return hr;
+}
+
+STDMETHODIMP PyGPropertyStorage::Revert(
+		void)
+{
+	PY_GATEWAY_METHOD;
+	HRESULT hr=InvokeViaPolicy("Revert", NULL);
+	return hr;
+}
+
+STDMETHODIMP PyGPropertyStorage::Enum(
+		/* [out] */ IEnumSTATPROPSTG ** ppenum)
+{
+	PY_GATEWAY_METHOD;
+	if (ppenum==NULL) return E_POINTER;
+	PyObject *result;
+	HRESULT hr=InvokeViaPolicy("Enum", &result);
+	if (FAILED(hr)) return hr;
+	// Process the Python results, and convert back to the real params
+	if (!PyCom_InterfaceFromPyInstanceOrObject(result, IID_IEnumSTATPROPSTG, (void **)ppenum, FALSE))
+		hr = MAKE_PYCOM_GATEWAY_FAILURE_CODE("Enum");
+	Py_DECREF(result);
+	return hr;
+}
+
+STDMETHODIMP PyGPropertyStorage::SetTimes(
+		/* [in] */ const FILETIME * pctime,
+		/* [in] */ const FILETIME * patime,
+		/* [in] */ const FILETIME * pmtime)
+{
+	PY_GATEWAY_METHOD;
+	HRESULT hr;
+	{
+	TmpPyObject obctime, obatime, obmtime;
+	if (pctime){
+		obctime = PyWinObject_FromFILETIME(*pctime);
+		if (obctime==NULL)
+			return MAKE_PYCOM_GATEWAY_FAILURE_CODE("SetTimes");
+		}
+	else{
+		Py_INCREF(Py_None);
+		obctime = Py_None;
+		}
+	if (patime){
+		obatime = PyWinObject_FromFILETIME(*patime);
+		if (obatime==NULL)
+			return MAKE_PYCOM_GATEWAY_FAILURE_CODE("SetTimes");
+		}
+	else{
+		Py_INCREF(Py_None);
+		obatime = Py_None;
+		}
+	if (pmtime){
+		obmtime = PyWinObject_FromFILETIME(*pmtime);
+		if (obmtime==NULL)
+			return MAKE_PYCOM_GATEWAY_FAILURE_CODE("SetTimes");
+		}
+	else{
+		Py_INCREF(Py_None);
+		obmtime = Py_None;
+		}	
+	hr =InvokeViaPolicy("SetTimes", NULL, "OOO", obctime, obatime, obmtime);
+	}
+	return hr;
+}
+
+STDMETHODIMP PyGPropertyStorage::SetClass(
+		/* [in] */ REFCLSID clsid)
+{
+	PY_GATEWAY_METHOD;
+	PyObject *obclsid;
+	obclsid = PyWinObject_FromIID(clsid);
+	HRESULT hr=InvokeViaPolicy("SetClass", NULL, "O", obclsid);
+	Py_XDECREF(obclsid);
+	return hr;
+}
+
+STDMETHODIMP PyGPropertyStorage::Stat(
+		/* [out] */ STATPROPSETSTG * pstatpsstg)
+{
+	PY_GATEWAY_METHOD;
+	PyObject *result;
+	HRESULT hr=InvokeViaPolicy("Stat", &result);
+	if (FAILED(hr))
+		return hr;
+	if (!PyCom_PyObjectAsSTATPROPSETSTG(result, pstatpsstg))
+		hr = MAKE_PYCOM_GATEWAY_FAILURE_CODE("Stat");
+		
+	Py_DECREF(result);
+	return hr;
+}
 
 #endif // NO_PYCOM_IPROPERTYSTORAGE

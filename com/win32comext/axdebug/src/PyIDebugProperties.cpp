@@ -43,13 +43,17 @@ PyObject *PyObject_FromDebugPropertyInfo(const DebugPropertyInfo *p)
 		SET_INC_NONE(ob);
 	PyTuple_SET_ITEM(obRet, 4, ob);
 	if (p->m_dwValidFields & DBGPROP_INFO_DEBUGPROP) {
-		ob = PyCom_PyObjectFromIUnknown(p->m_pDebugProp, IID_IDebugProperty, /* bAddRef = */ FALSE);
+		ob = PyCom_PyObjectFromIUnknown(p->m_pDebugProp, IID_IDebugProperty);
 		if (ob==NULL) goto error;
+		PYCOM_RELEASE(p->m_pDebugProp);
 	} else
 		SET_INC_NONE(ob);
 	PyTuple_SET_ITEM(obRet, 5, ob);
 	return obRet;
 error:
+	if ((p->m_dwValidFields & DBGPROP_INFO_DEBUGPROP)) {
+		PYCOM_RELEASE(p->m_pDebugProp);
+	}
 	Py_XDECREF(obRet);
 	return NULL;
 }
@@ -262,12 +266,7 @@ PyObject *PyIDebugProperty::EnumMembers(PyObject *self, PyObject *args)
 
 	if ( FAILED(hr) )
 		return OleSetOleError(hr);
-	PyObject *obppepi;
-
-	obppepi = PyCom_PyObjectFromIUnknown(ppepi, IID_IEnumDebugPropertyInfo, FALSE);
-	PyObject *pyretval = Py_BuildValue("O", obppepi);
-	Py_XDECREF(obppepi);
-	return pyretval;
+	return PyCom_PyObjectFromIUnknown(ppepi, IID_IEnumDebugPropertyInfo, FALSE);
 }
 
 // @pymethod |PyIDebugProperty|GetParent|Description of GetParent.
@@ -286,12 +285,7 @@ PyObject *PyIDebugProperty::GetParent(PyObject *self, PyObject *args)
 
 	if ( FAILED(hr) )
 		return OleSetOleError(hr);
-	PyObject *obppDebugProp;
-
-	obppDebugProp = PyCom_PyObjectFromIUnknown(ppDebugProp, IID_IDebugProperty, FALSE);
-	PyObject *pyretval = Py_BuildValue("O", obppDebugProp);
-	Py_XDECREF(obppDebugProp);
-	return pyretval;
+	return PyCom_PyObjectFromIUnknown(ppDebugProp, IID_IDebugProperty, FALSE);
 }
 
 // @object PyIDebugProperty|Description of the interface

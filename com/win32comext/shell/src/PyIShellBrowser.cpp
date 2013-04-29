@@ -9,7 +9,7 @@
 // ---------------------------------------------------
 //
 extern BOOL PyObject_AsTBBUTTONs( PyObject *ob, TBBUTTON **ppButtons, UINT *nButtons );
-extern void PyObject_FreeTBBUTTONs(TBBUTTON *);
+extern void PyObject_FreeTBBUTTONs(TBBUTTON *, UINT);
 
 // Interface Implementation
 
@@ -121,25 +121,22 @@ PyObject *PyIShellBrowser::SetStatusTextSB(PyObject *self, PyObject *args)
 	IShellBrowser *pISB = GetI(self);
 	if ( pISB == NULL )
 		return NULL;
-	PyObject *obpszStatusText;
-	LPOLESTR pszStatusText;
+	PyObject *obStatusText;
+	TmpWCHAR StatusText;
 	if (!PyArg_ParseTuple(args, "O:SetStatusTextSB",
-		&obpszStatusText))	// @pyparm <o PyUnicode>|pszStatusText||New status to be displayed
+		&obStatusText))	// @pyparm str|pszStatusText||New status to be displayed
 		return NULL;
-	if (!PyWinObject_AsBstr(obpszStatusText, &pszStatusText))
+	if (!PyWinObject_AsWCHAR(obStatusText, &StatusText))
 		return NULL;
 	HRESULT hr;
 	PY_INTERFACE_PRECALL;
-	hr = pISB->SetStatusTextSB( pszStatusText );
-	SysFreeString(pszStatusText);
-
+	hr = pISB->SetStatusTextSB(StatusText );
 	PY_INTERFACE_POSTCALL;
 
 	if ( FAILED(hr) )
 		return PyCom_BuildPyException(hr, pISB, IID_IShellBrowser );
 	Py_INCREF(Py_None);
 	return Py_None;
-
 }
 
 // @pymethod |PyIShellBrowser|EnableModelessSB|Enables or disables modeless dialogs
@@ -355,7 +352,7 @@ PyObject *PyIShellBrowser::SetToolbarItems(PyObject *self, PyObject *args)
 	HRESULT hr;
 	PY_INTERFACE_PRECALL;
 	hr = pISB->SetToolbarItems( lpButtons, nButtons, uFlags );
-	PyObject_FreeTBBUTTONs(lpButtons);
+	PyObject_FreeTBBUTTONs(lpButtons, nButtons);
 	PY_INTERFACE_POSTCALL;
 
 	if ( FAILED(hr) )
