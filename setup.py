@@ -11,7 +11,7 @@ to build and install into your current Python installation.
 
 These extensions require a number of libraries to build, some of which may
 require you to install special SDKs or toolkits.  This script will attempt
-to build as many as it can, and at the end of the build will report any 
+to build as many as it can, and at the end of the build will report any
 extension modules that could not be built and why.
 
 This has got complicated due to the various different versions of
@@ -246,7 +246,7 @@ if sys.version_info > (2,6):
     # always monkeypatch it in even though it will only be called in 2.7
     # and 3.2+.
     MSVCCompiler.manifest_get_embed_info = manifest_get_embed_info
-        
+
     def monkeypatched_spawn(self, cmd):
         is_link = cmd[0].endswith("link.exe") or cmd[0].endswith('"link.exe"')
         is_mt = cmd[0].endswith("mt.exe") or cmd[0].endswith('"mt.exe"')
@@ -299,7 +299,7 @@ class WinExt (Extension):
     # Base class for all win32 extensions, with some predefined
     # library and include dirs, and predefined windows libraries.
     # Additionally a method to parse .def files into lists of exported
-    # symbols, and to read 
+    # symbols, and to read
     def __init__ (self, name, sources,
                   include_dirs=[],
                   define_macros=None,
@@ -452,7 +452,7 @@ class WinExt (Extension):
             self.extra_link_args.append("/DEBUG")
             self.extra_link_args.append("/PDB:%s\%s.pdb" %
                                        (pch_dir, self.name))
-            # enable unwind semantics - some stuff needs it and I can't see 
+            # enable unwind semantics - some stuff needs it and I can't see
             # it hurting
             self.extra_compile_args.append("/EHsc")
 
@@ -538,8 +538,8 @@ class WinExt_win32com(WinExt):
 # * Require use of the Exchange 2000 SDK - this works for both VC6 and 7
 class WinExt_win32com_mapi(WinExt_win32com):
     def __init__ (self, name, **kw):
-        # The Exchange 2000 SDK seems to install itself without updating 
-        # LIB or INCLUDE environment variables.  It does register the core 
+        # The Exchange 2000 SDK seems to install itself without updating
+        # LIB or INCLUDE environment variables.  It does register the core
         # directory in the registry tho - look it up
         sdk_install_dir = None
         libs = kw.get("libraries", "")
@@ -560,7 +560,7 @@ class WinExt_win32com_mapi(WinExt_win32com):
             d = os.path.join(sdk_install_dir, "SDK", "Lib")
             if os.path.isdir(d):
                 kw.setdefault("library_dirs", []).insert(0, d)
-                
+
         # The stand-alone exchange SDK has these libs
         if distutils.util.get_platform() == 'win-amd64':
             # Additional utility functions are only available for 32-bit builds.
@@ -602,7 +602,7 @@ if do_2to3:
                     urllib xrange""".split()
         fqfixers = ['lib2to3.fixes.fix_' + f for f in fixers]
 
-        options = dict(doctests_only=False, fix=[], list_fixes=[], 
+        options = dict(doctests_only=False, fix=[], list_fixes=[],
                        print_function=False, verbose=False,
                        write=True)
         r = RefactoringTool(fqfixers, options)
@@ -633,20 +633,20 @@ if do_2to3:
 
         def run(self):
             self.updated_files = []
-    
+
             # Base class code
             if self.py_modules:
                 self.build_modules()
             if self.packages:
                 self.build_packages()
                 self.build_package_data()
-    
+
             # 2to3
             refactor_filenames(self.updated_files)
-    
+
             # Remaining base class code
             self.byte_compile(self.get_outputs(include_bytecode=0))
-    
+
         def build_module(self, module, module_file, package):
             res = build_py.build_module(self, module, module_file, package)
             if res[1]:
@@ -961,7 +961,7 @@ class my_build_ext(build_ext):
         # First, sanity-check the 'extensions' list
         self.check_extensions_list(self.extensions)
 
-        self.found_libraries = {}        
+        self.found_libraries = {}
 
         if not hasattr(self.compiler, 'initialized'):
             # 2.3 and earlier initialized at construction
@@ -1642,7 +1642,7 @@ for info in (
     if len(info)>4:
         sources = info[4].split()
     extra_compile_args = []
-    ext = WinExt_win32(name, 
+    ext = WinExt_win32(name,
                  libraries=lib_names,
                  extra_compile_args = extra_compile_args,
                  windows_h_version = windows_h_ver,
@@ -1668,7 +1668,7 @@ win32_extensions += [
            delay_load_libraries="powrprof",
            windows_h_version=0x0500,
         ),
-    WinExt_win32("win32gui", 
+    WinExt_win32("win32gui",
            sources = """
                 win32/src/win32dynamicdialog.cpp
                 win32/src/win32gui.i
@@ -2427,7 +2427,7 @@ packages=['win32com',
           'win32comext.directsound.test',
           'win32comext.authorization',
           'win32comext.bits',
-          
+
           'pythonwin.pywin',
           'pythonwin.pywin.debugger',
           'pythonwin.pywin.dialogs',
@@ -2501,10 +2501,10 @@ dist = setup(name="pywin32",
       packages = packages,
       py_modules = py_modules,
 
-      data_files=[('', (os.path.join(gettempdir(),'pywin32.version.txt'),))] + 
+      data_files=[('', (os.path.join(gettempdir(),'pywin32.version.txt'),))] +
         convert_optional_data_files([
                 'PyWin32.chm',
-                ]) + 
+                ]) +
         convert_data_files([
                 'pythonwin/pywin/*.cfg',
                 'pythonwin/pywin/Demos/*.py',
