@@ -223,16 +223,18 @@ def find_platform_sdk_dir():
                 break
             sdk_version_key = _winreg.OpenKey(key, sdk_version)
             try:
-                sdkdir, _ = _winreg.QueryValueEx(sdk_version_key, "Installation Folder")
+                sdkdir, _ = _winreg.QueryValueEx(sdk_version_key, "InstallationFolder")
                 if os.path.isfile(os.path.join(sdkdir, landmark)):
                     possible_sdkdirs.append((sdk_version, sdkdir))
             except EnvironmentError:
                 pass
+            i += 1
     
     if possible_sdkdirs:
+        _, sdkdir = max(possible_sdkdirs)
         if DEBUG:
-            print "Found possible sdkdirs:", ", ".join("%s => %s" % possible in possible_sdkdirs)
-        return max(possible_sdkdirs)
+            print r"Found highest complete SDK installed at", sdkdir
+        return sdkdir
 
     # 5. Failing this just try a few well-known default install locations.
     progfiles = os.environ.get("ProgramFiles", r"C:\Program Files")
