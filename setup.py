@@ -203,6 +203,36 @@ def find_platform_sdk_dir():
                    "\Windows\CurrentInstallFolder': '%s'" % sdkdir
         if os.path.isfile(os.path.join(sdkdir, landmark)):
             return sdkdir
+    
+    # 4a. Vista's SDK when the CurrentInstallFolder isn't a complete installation
+    # NB Try to find the most recent one which has a complete install; this
+    # involves selecting them all and then selecting the last based on the
+    # version number
+    possible_sdkdirs = []
+    try:
+        key = _winreg.OpenKey(_winreg.HKEY_LOCAL_MACHINE,
+                              r"Software\Microsoft\Microsoft SDKs\Windows")
+    except EnvironmentError:
+        pass
+    else:
+        i = 0
+        while True:
+            try:
+                sdk_version = _winreg.EnumKey(key, i)
+            except EnvironmentError:
+                break
+            sdk_version_key = _winreg.OpenKey(key, sdk_version)
+            try:
+                sdkdir, _ = _winreg.QueryValueEx(sdk_version_key, "Installation Folder")
+                if os.path.isfile(os.path.join(sdkdir, landmark)):
+                    possible_sdkdirs.append((sdk_version, sdkdir))
+            except EnvironmentError:
+                pass
+    
+    if possible_sdkdirs:
+        if DEBUG:
+            print "Found possible sdkdirs:", ", ".join("%s => %s" % possible in possible_sdkdirs)
+        return max(possible_sdkdirs)
 
     # 5. Failing this just try a few well-known default install locations.
     progfiles = os.environ.get("ProgramFiles", r"C:\Program Files")
@@ -215,6 +245,8 @@ def find_platform_sdk_dir():
             print "PSDK: try default location: '%s'" % sdkdir
         if os.path.isfile(os.path.join(sdkdir, landmark)):
             return sdkdir
+    
+    raise RuntimeError("No SDK to be found")
 
 
 # Some nasty hacks to prevent most of our extensions using a manifest, as
@@ -294,6 +326,7 @@ if sys.version_info > (2,6):
 
 
 sdk_dir = find_platform_sdk_dir()
+print "Using platform SDK from", sdk_dir
 
 class WinExt (Extension):
     # Base class for all win32 extensions, with some predefined
