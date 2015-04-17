@@ -1,3 +1,4 @@
+from __future__ import print_function
 build_id="219.5" # may optionally include a ".{patchno}" suffix.
 # Putting buildno at the top prevents automatic __doc__ assignment, and
 # I *want* the build number at the top :)
@@ -117,7 +118,7 @@ if not "." in build_id_patch:
     build_id_patch = build_id_patch + ".0"
 pywin32_version="%d.%d.%s" % (sys.version_info[0], sys.version_info[1],
                               build_id_patch)
-print "Building pywin32", pywin32_version
+print("Building pywin32", pywin32_version)
 
 try:
     this_file = __file__
@@ -146,7 +147,7 @@ def find_platform_sdk_dir():
     sdkdir = os.environ.get("MSSdk")
     if sdkdir:
         if DEBUG:
-            print "PSDK: try %%MSSdk%%: '%s'" % sdkdir
+            print("PSDK: try %%MSSdk%%: '%s'" % sdkdir)
         if os.path.isfile(os.path.join(sdkdir, landmark)):
             return sdkdir
     # 2. The "Install Dir" value in the
@@ -161,8 +162,8 @@ def find_platform_sdk_dir():
         pass
     else:
         if DEBUG:
-            print r"PSDK: try 'HKLM\Software\Microsoft\MicrosoftSDK"\
-                   "\Directories\Install Dir': '%s'" % sdkdir
+            print(r"PSDK: try 'HKLM\Software\Microsoft\MicrosoftSDK"\
+                   "\Directories\Install Dir': '%s'" % sdkdir)
         if os.path.isfile(os.path.join(sdkdir, landmark)):
             return sdkdir
     # 3. Each installed SDK (not just the platform SDK) seems to have GUID
@@ -182,9 +183,9 @@ def find_platform_sdk_dir():
                 pass
             else:
                 if DEBUG:
-                    print r"PSDK: try 'HKLM\Software\Microsoft\MicrosoftSDK"\
+                    print(r"PSDK: try 'HKLM\Software\Microsoft\MicrosoftSDK"\
                            "\InstallSDKs\%s\Install Dir': '%s'"\
-                           % (guid, sdkdir)
+                           % (guid, sdkdir))
                 if os.path.isfile(os.path.join(sdkdir, landmark)):
                     return sdkdir
             i += 1
@@ -199,8 +200,8 @@ def find_platform_sdk_dir():
         pass
     else:
         if DEBUG:
-            print r"PSDK: try 'HKLM\Software\Microsoft\MicrosoftSDKs"\
-                   "\Windows\CurrentInstallFolder': '%s'" % sdkdir
+            print(r"PSDK: try 'HKLM\Software\Microsoft\MicrosoftSDKs"\
+                   "\Windows\CurrentInstallFolder': '%s'" % sdkdir)
         if os.path.isfile(os.path.join(sdkdir, landmark)):
             return sdkdir
     
@@ -233,7 +234,7 @@ def find_platform_sdk_dir():
     if possible_sdkdirs:
         _, sdkdir = max(possible_sdkdirs)
         if DEBUG:
-            print r"Found highest complete SDK installed at", sdkdir
+            print(r"Found highest complete SDK installed at", sdkdir)
         return sdkdir
 
     # 5. Failing this just try a few well-known default install locations.
@@ -244,7 +245,7 @@ def find_platform_sdk_dir():
     ]
     for sdkdir in defaultlocs:
         if DEBUG:
-            print "PSDK: try default location: '%s'" % sdkdir
+            print("PSDK: try default location: '%s'" % sdkdir)
         if os.path.isfile(os.path.join(sdkdir, landmark)):
             return sdkdir
     
@@ -328,7 +329,7 @@ if sys.version_info > (2,6):
 
 
 sdk_dir = find_platform_sdk_dir()
-print "Using platform SDK from", sdk_dir
+print("Using platform SDK from", sdk_dir)
 
 class WinExt (Extension):
     # Base class for all win32 extensions, with some predefined
@@ -719,8 +720,8 @@ class my_build(build):
             f = open(ver_fname, "w")
             f.write("%s\n" % build_id)
             f.close()
-        except EnvironmentError, why:
-            print "Failed to open '%s': %s" % (ver_fname, why)
+        except EnvironmentError as why:
+            print("Failed to open '%s': %s" % (ver_fname, why))
 
 class my_build_ext(build_ext):
 
@@ -1030,7 +1031,7 @@ class my_build_ext(build_ext):
             if why is not None:
                 self.excluded_extensions.append((ext, why))
                 assert why, "please give a reason, or None"
-                print "Skipping %s: %s" % (ext.name, why)
+                print("Skipping %s: %s" % (ext.name, why))
                 continue
 
             try:
@@ -1103,8 +1104,8 @@ class my_build_ext(build_ext):
                 for f in mfc_files:
                     self.copy_file(
                             os.path.join(mfc_dir, f), target_dir)
-        except (EnvironmentError, RuntimeError), exc:
-            print "Can't find an installed VC for the MFC DLLs:", exc
+        except (EnvironmentError, RuntimeError) as exc:
+            print("Can't find an installed VC for the MFC DLLs:", exc)
 
 
     def build_exefile(self, ext):
@@ -1228,7 +1229,7 @@ class my_build_ext(build_ext):
         if why is not None:
             self.excluded_extensions.append((ext, why))
             assert why, "please give a reason, or None"
-            print "Skipping %s: %s" % (ext.name, why)
+            print("Skipping %s: %s" % (ext.name, why))
             return
         self.current_extension = ext
 
@@ -1455,7 +1456,7 @@ class my_install(install):
             filename = os.path.join(self.prefix, "Scripts", "pywin32_postinstall.py")
             if not os.path.isfile(filename):
                 raise RuntimeError("Can't find '%s'" % (filename,))
-            print "Executing post install script..."
+            print("Executing post install script...")
             # What executable to use?  This one I guess.
             os.spawnl(os.P_NOWAIT, sys.executable,
                       sys.executable, filename,
@@ -1531,7 +1532,7 @@ class my_compiler(base_compiler):
             args.append(output_filename)
             try:
                 self.spawn(args)
-            except DistutilsExecError, msg:
+            except DistutilsExecError as msg:
                 log.info("VersionStamp failed: %s", msg)
                 ok = False
         if not ok:
@@ -1548,7 +1549,7 @@ class my_install_data(install_data):
         if self.install_dir is None:
             installobj = self.distribution.get_command_obj('install')
             self.install_dir = installobj.install_lib
-        print 'Installing data files to %s' % self.install_dir
+        print('Installing data files to %s' % self.install_dir)
         install_data.finalize_options(self)
 
     def copy_file(self, src, dest):
@@ -2431,7 +2432,7 @@ def convert_optional_data_files(files):
     for file in files:
         try:
             temp = convert_data_files([file])
-        except RuntimeError, details:
+        except RuntimeError as details:
             if not str(details.args[0]).startswith("No file"):
                 raise
             log.info('NOTE: Optional file %s not found - skipping' % file)
@@ -2442,8 +2443,8 @@ def convert_optional_data_files(files):
 ################################################################
 if len(sys.argv)==1:
     # distutils will print usage - print our docstring first.
-    print __doc__
-    print "Standard usage information follows:"
+    print(__doc__)
+    print("Standard usage information follows:")
 
 packages=['win32com',
           'win32com.client',
@@ -2631,10 +2632,10 @@ if 'build_ext' in dist.command_obj:
     if 'build_ext' in dist.command_obj:
         excluded_extensions = dist.command_obj['build_ext'].excluded_extensions
         if excluded_extensions:
-            print "*** NOTE: The following extensions were NOT %s:" % what_string
+            print("*** NOTE: The following extensions were NOT %s:" % what_string)
             for ext, why in excluded_extensions:
-                print " %s: %s" % (ext.name, why)
-            print "For more details on installing the correct libraries and headers,"
-            print "please execute this script with no arguments (or see the docstring)"
+                print(" %s: %s" % (ext.name, why))
+            print("For more details on installing the correct libraries and headers,")
+            print("please execute this script with no arguments (or see the docstring)")
         else:
-            print "All extension modules %s OK" % (what_string,)
+            print("All extension modules %s OK" % (what_string,))
