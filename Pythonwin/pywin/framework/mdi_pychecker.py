@@ -1,3 +1,7 @@
+from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
+
 ######################################################################
 ##
 ## The Pychecker MDI Plug-In UserModule for Pythonwin
@@ -38,7 +42,7 @@ import win32api
 from pywin.mfc import docview, dialog, window
 import win32con
 import sys, string, re, glob, os, stat, time
-import scriptutils
+from . import scriptutils
 
 def getsubdirs(d):
     dlist = []
@@ -98,7 +102,7 @@ class dirpath:
                                     if sd not in dirs:
                                         dirs[sd] = None
         self.dirs = []
-        for d in dirs.iterkeys():
+        for d in dirs.keys():
             self.dirs.append(d)
 
     def __getitem__(self, key):
@@ -275,8 +279,8 @@ class TheDocument(docview.RichEditDoc):
         self.result=None
         old=win32api.SetCursor(win32api.LoadCursor(0, win32con.IDC_APPSTARTING))
         win32ui.GetApp().AddIdleHandler(self.idleHandler)
-        import thread
-        thread.start_new(self.threadPycheckerRun,())
+        import _thread
+        _thread.start_new(self.threadPycheckerRun,())
         ##win32api.SetCursor(old)
     def threadPycheckerRun(self):
         result=''
@@ -315,7 +319,7 @@ class TheDocument(docview.RichEditDoc):
             self.GetFirstView().Append(result)
         finally:
             self.result=result
-            print '== Pychecker run finished =='
+            print('== Pychecker run finished ==')
             self.GetFirstView().Append('\n'+'== Pychecker run finished ==')
             self.SetModifiedFlag(0)
     def _inactive_idleHandler(self, handler, count):

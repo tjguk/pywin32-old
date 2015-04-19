@@ -1,3 +1,7 @@
+from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
+
 import string
 import win32con
 import win32api
@@ -128,14 +132,14 @@ def make_key_name(vk, flags):
             # Not in our virtual key map - ask Windows what character this
             # key corresponds to.
             scancode = win32api.MapVirtualKey(vk, MAPVK_VK_TO_CHAR)
-            parts.append(unichr(scancode))
+            parts.append(chr(scancode))
     sep = "+"
     if sep in parts: sep = "-"
     return sep.join([p.capitalize() for p in parts])
 
 def _psc(char):
     sc, mods = get_vk(char)
-    print "Char %s -> %d -> %s" % (repr(char), sc, key_code_to_name.get(sc))
+    print("Char %s -> %d -> %s" % (repr(char), sc, key_code_to_name.get(sc)))
 
 def test1():
     for ch in """aA0/?[{}];:'"`~_-+=\\|,<.>/?""":
@@ -145,7 +149,7 @@ def test1():
 
 def _pkn(n):
     vk, flags = parse_key_name(n)
-    print "%s -> %s,%s -> %s" % (n, vk, flags, make_key_name(vk, flags))
+    print("%s -> %s,%s -> %s" % (n, vk, flags, make_key_name(vk, flags)))
 
 def test2():
     _pkn("ctrl+alt-shift+x")

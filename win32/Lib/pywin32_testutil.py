@@ -1,3 +1,7 @@
+from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
+
 # Utilities for the pywin32 tests
 import sys
 import unittest
@@ -139,7 +143,7 @@ class TestLoader(unittest.TestLoader):
         # one or 2 tests in the COM test suite set this...
         no_leak_tests = getattr(test, "no_leak_tests", False)
         if no_leak_tests:
-            print "Test says it doesn't want leak tests!"
+            print("Test says it doesn't want leak tests!")
             return test
         return LeakTestCase(test)
 
@@ -157,7 +161,7 @@ class TestLoader(unittest.TestLoader):
         elif isinstance(test, unittest.TestCase):
             test = self._getTestWrapper(test)
         else:
-            print "XXX - what is", test
+            print("XXX - what is", test)
         return test
 
 # Lots of classes necessary to support one simple feature: we want a 3rd
@@ -179,7 +183,7 @@ def check_is_admin():
         import pythoncom
         try:
             _is_admin = IsUserAnAdmin()
-        except pythoncom.com_error, exc:
+        except pythoncom.com_error as exc:
             if exc.hresult != winerror.E_NOTIMPL:
                 raise
             # not impl on this platform - must be old - assume is admin
@@ -244,7 +248,7 @@ class TestResult(unittest._TextTestResult):
 
     def printErrors(self):
         super(TestResult, self).printErrors()
-        for reason, num_skipped in self.skips.iteritems():
+        for reason, num_skipped in self.skips.items():
             self.stream.writeln("SKIPPED: %d tests - %s" % (num_skipped, reason))
 
 # TestRunner subclass necessary just to get our TestResult hooked up.

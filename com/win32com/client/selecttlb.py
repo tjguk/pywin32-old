@@ -1,3 +1,7 @@
+from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
+
 """Utilities for selecting and enumerating the Type Libraries installed on the system
 """
 
@@ -157,4 +161,4 @@ def SelectTlb(title="Select Library", excludeFlags = 0):
 
 # Test code.
 if __name__=='__main__':
-	print SelectTlb().__dict__
+	print(SelectTlb().__dict__)

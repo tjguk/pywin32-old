@@ -1,3 +1,7 @@
+from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
+
 """
 Helper classes for SSPI authentication via the win32security module.
 
@@ -223,4 +227,4 @@ if __name__=='__main__':
 
     data, key = sspiclient.encrypt(data)
     assert sspiserver.decrypt(data, key) == data
-    print "cool!"
+    print("cool!")

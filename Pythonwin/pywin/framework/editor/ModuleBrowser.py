@@ -1,3 +1,7 @@
+from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
+
 # ModuleBrowser.py - A view that provides a module browser for an editor document.
 import pywin.mfc.docview
 import win32ui
@@ -18,7 +22,7 @@ class HierListCLBRModule(hierlist.HierListItem):
         return self.modName
     def GetSubList(self):
         ret = []
-        for item in self.clbrdata.itervalues():
+        for item in self.clbrdata.values():
             if item.__class__ != pyclbr.Class: # ie, it is a pyclbr Function instance (only introduced post 1.5.2)
                 ret.append(HierListCLBRFunction( item ) )
             else:
@@ -71,7 +75,7 @@ class HierListCLBRClass(HierListCLBRItem):
             r1.append(HierListCLBRClass(c, " (Parent class)"))
         r1.sort()
         r2=[]
-        for meth, lineno in self.methods.iteritems():
+        for meth, lineno in self.methods.items():
             r2.append(HierListCLBRMethod(meth, self.file, lineno))
         r2.sort()
         return r1+r2

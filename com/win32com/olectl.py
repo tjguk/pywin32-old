@@ -1,3 +1,7 @@
+from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
+
 """Constants used by COM Controls
 
   Hand created version of OLECTL.H constants.
@@ -8,7 +12,7 @@ import winerror
 FACILITY_CONTROL = 0xa
 
 def MAKE_SCODE(sev, fac, code):
-	return int((long(-sev)<<31) | ((fac)<<16) | ((code)))
+	return int((int(-sev)<<31) | ((fac)<<16) | ((code)))
 
 def STD_CTL_SCODE(n):
 	return MAKE_SCODE(winerror.SEVERITY_ERROR, FACILITY_CONTROL, n)

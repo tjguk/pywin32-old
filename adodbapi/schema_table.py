@@ -1,5 +1,9 @@
+from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
+
 """call using an open ADO connection --> list of table names"""
-import adodbapi
+from . import adodbapi
 
 def names(connection_object):
     ado = connection_object.adoConn

@@ -1,5 +1,9 @@
+from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
+
 # The MFCish window classes.
-import object
+from . import object
 import win32ui
 import win32con
 
