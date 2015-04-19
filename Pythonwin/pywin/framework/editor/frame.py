@@ -1,10 +1,14 @@
+from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
+
 # frame.py - The MDI frame window for an editor.
 import pywin.framework.window
 import win32ui
 import win32con
 import afxres
 
-import ModuleBrowser
+from . import ModuleBrowser
 
 class EditorFrame(pywin.framework.window.MDIChildWnd):
     def OnCreateClient(self, cp, context):

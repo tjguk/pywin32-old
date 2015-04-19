@@ -1,3 +1,7 @@
+from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
+
 # vss.py -- Source Control using Microsoft VSS.
 
 # Provides routines for checking files out of VSS.
@@ -81,7 +85,7 @@ def CheckoutFile(fileName):
 		item = g_sourceSafe.VSSItem("$/%s/%s" % (project, vssFname))
 		item.Checkout(None, fileName)
 		ok = 1
-	except pythoncom.com_error, exc:
+	except pythoncom.com_error as exc:
 		win32ui.MessageBox(exc.strerror, "Error checking out file")
 	except:
 		typ, val, tb = sys.exc_info()

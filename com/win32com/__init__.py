@@ -1,3 +1,7 @@
+from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
+
 #
 # Initialization for the win32com package
 #
@@ -90,7 +94,7 @@ if not __gen_path__:
 		# hrmph - 3.3 throws: TypeError: '_NamespacePath' object does not support indexing
 		# attempting to get __path__[0] - but I can't quickly repro this stand-alone.
 		# Work around it by using an iterator.
-		__gen_path__ = iter(sys.modules["win32com.gen_py"].__path__).next()
+		__gen_path__ = next(iter(sys.modules["win32com.gen_py"].__path__))
 	except ImportError:
 		# If a win32com\gen_py directory already exists, then we use it
 		# (gencache doesn't insist it have an __init__, but our __import__ 

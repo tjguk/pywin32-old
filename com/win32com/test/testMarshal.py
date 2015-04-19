@@ -1,3 +1,7 @@
+from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
+
 """Testing pasing object between multiple COM threads
 
 Uses standard COM marshalling to pass objects between threads.  Even
@@ -27,7 +31,7 @@ import win32event, win32api
 import pythoncom
 import unittest
 
-from testServers import InterpCase
+from .testServers import InterpCase
 
 freeThreaded = 1
 
@@ -116,7 +120,7 @@ class ThreadInterpCase(InterpCase):
                     # This is critical - whole apartment model demo will hang.
                     pythoncom.PumpWaitingMessages()
                 else: # Timeout
-                    print "Waiting for thread to stop with interfaces=%d, gateways=%d" % (pythoncom._GetInterfaceCount(), pythoncom._GetGatewayCount())
+                    print("Waiting for thread to stop with interfaces=%d, gateways=%d" % (pythoncom._GetInterfaceCount(), pythoncom._GetGatewayCount()))
             except KeyboardInterrupt:
                 break
         for t in threads:

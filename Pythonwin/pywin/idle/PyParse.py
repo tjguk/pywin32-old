@@ -1,3 +1,7 @@
+from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
+
 import string
 import re
 import sys
@@ -105,7 +109,7 @@ for ch in "\"'\\\n#":
 # We are called with unicode strings, and str.translate is one of the few
 # py2k functions which can't 'do the right thing' - so take care to ensure
 # _tran is full of unicode...
-_tran = u''.join(_tran)
+_tran = ''.join(_tran)
 del ch
 
 class Parser:

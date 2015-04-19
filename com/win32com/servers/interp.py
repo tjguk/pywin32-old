@@ -1,3 +1,7 @@
+from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
+
 """Python.Interpreter COM Server
 
   This module implements a very very simple COM server which
@@ -32,21 +36,21 @@ class Interpreter:
     def Eval(self, exp):
         """Evaluate an expression.
         """
-        if type(exp) not in [str, unicode]:
+        if type(exp) not in [str, str]:
             raise Exception(desc="Must be a string",scode=winerror.DISP_E_TYPEMISMATCH)
 
         return eval(str(exp), self.dict)
     def Exec(self, exp):
         """Execute a statement.
         """
-        if type(exp) not in [str, unicode]:
+        if type(exp) not in [str, str]:
             raise Exception(desc="Must be a string",scode=winerror.DISP_E_TYPEMISMATCH)
-        exec str(exp) in self.dict
+        exec(str(exp), self.dict)
 
 def Register():
     import win32com.server.register
     return win32com.server.register.UseCommandLine(Interpreter)
 
 if __name__=='__main__':
-    print "Registering COM server..."
+    print("Registering COM server...")
     Register()

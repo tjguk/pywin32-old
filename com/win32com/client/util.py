@@ -1,3 +1,7 @@
+from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
+
 """General client side utilities.
 
 This module contains utility functions, used primarily by advanced COM
@@ -80,5 +84,5 @@ class Iterator:
 		self._iter_ = iter(enum.QueryInterface(pythoncom.IID_IEnumVARIANT))
 	def __iter__(self):
 		return self
-	def next(self):
-		return _get_good_object_(self._iter_.next(), resultCLSID = self.resultCLSID)
+	def __next__(self):
+		return _get_good_object_(next(self._iter_), resultCLSID = self.resultCLSID)

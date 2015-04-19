@@ -1,3 +1,7 @@
+from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
+
 # DDE support for Pythonwin
 #
 # Seems to work fine (in the context that IE4 seems to have broken
@@ -22,7 +26,7 @@ class DDESystemTopic(object.Object):
 		except:
 			t,v,tb = sys.exc_info()
 			# The DDE Execution failed.
-			print "Error executing DDE command."
+			print("Error executing DDE command.")
 			traceback.print_exception(t,v,tb)
 			return 0
 

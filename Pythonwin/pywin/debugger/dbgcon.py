@@ -1,3 +1,7 @@
+from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
+
 # General constants for the debugger
 
 DBGSTATE_NOT_DEBUGGING = 0
@@ -24,5 +28,5 @@ def LoadDebuggerOptions():
 	return opts
 
 def SaveDebuggerOptions(opts):
-	for key, val in opts.iteritems():
+	for key, val in opts.items():
 		win32ui.WriteProfileVal("Debugger Options", key, val)

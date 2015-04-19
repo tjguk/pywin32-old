@@ -1,6 +1,10 @@
+from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
+
 # Thread and application objects
 
-import object
+from . import object
 import win32ui
 
 class WinThread(object.CmdTarget):
