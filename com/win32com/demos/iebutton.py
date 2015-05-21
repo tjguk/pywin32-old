@@ -1,3 +1,4 @@
+# -*- coding: UTF-8 -*-
 from __future__ import division
 from __future__ import absolute_import
 from __future__ import print_function
@@ -7,7 +8,7 @@ from __future__ import print_function
 # PyWin32 Internet Explorer Button
 #
 # written by Leonard Ritter (paniq@gmx.net)
-# and Robert Förtsch (info@robert-foertsch.com)
+# and Robert FÃ¶rtsch (info@robert-foertsch.com)
 
 
 """
@@ -34,7 +35,7 @@ from win32com import universal
 from win32com.client import gencache, DispatchWithEvents, Dispatch
 from win32com.client import constants, getevents
 import win32com.server.register
-import win32com
+`import win32com
 import pythoncom
 import win32api
 
