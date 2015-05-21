@@ -1,3 +1,7 @@
+from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
+
 import pywintypes
 import struct
 import win32event, win32api
@@ -23,8 +27,8 @@ sdesc.lpwfxFormat.nAvgBytesPerSec = 176400
 sdesc.lpwfxFormat.nBlockAlign = 4
 sdesc.lpwfxFormat.wBitsPerSample = 16
 
-print sdesc
-print d
+print(sdesc)
+print(d)
 buffer = d.CreateCaptureBuffer(sdesc)
 
 event = win32event.CreateEvent(None, 0, 0, None)

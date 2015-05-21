@@ -1,3 +1,7 @@
+from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
+
 import sys
 import time
 
@@ -32,14 +36,14 @@ if __name__=='__main__':
   progid = "Python.Tools"
   verprogid = "Python.Tools.1"
   if "--unregister" in sys.argv:
-    print "Unregistering..."
+    print("Unregistering...")
     UnregisterServer(clsid, progid, verprogid)
-    print "Unregistered OK"
+    print("Unregistered OK")
   else:
-    print "Registering COM server..."
+    print("Registering COM server...")
     RegisterServer(clsid,
                    "win32com.servers.PythonTools.Tools",
                    "Python Tools",
                    progid,
                    verprogid)
-    print "Class registered."
+    print("Class registered.")

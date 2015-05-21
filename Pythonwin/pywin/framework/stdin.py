@@ -1,3 +1,7 @@
+from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
+
 # Copyright (c) 2000 David Abrahams. Permission to copy, use, modify, sell
 # and distribute this software is granted provided this copyright
 # notice appears in all copies. This software is provided "as is" without
@@ -105,7 +109,7 @@ class Stdin:
         """Grab one line from get_input_line() and append it to the buffer.
         """
         line = get_input_line()
-        print '>>>',line  # echo input to console
+        print('>>>',line)  # echo input to console
         self.buffer = self.buffer + line + '\n'
 
     def readlines(self, *sizehint): 
@@ -159,12 +163,12 @@ Sell you soul to the devil, baby
     # Some completely inadequate tests, just to make sure the code's not totally broken    
     try:    
         x = Stdin()
-        print x.read()
-        print x.readline()
-        print x.read(12)
-        print x.readline(47)
-        print x.readline(3)
-        print x.readlines()
+        print(x.read())
+        print(x.readline())
+        print(x.read(12))
+        print(x.readline(47))
+        print(x.readline(3))
+        print(x.readlines())
     finally:
         get_input_line = raw_input
 else:

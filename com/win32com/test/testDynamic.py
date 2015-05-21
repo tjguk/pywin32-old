@@ -1,3 +1,7 @@
+from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
+
 # Test dynamic policy, and running object table.
 
 import pythoncom
@@ -35,8 +39,8 @@ class VeryPermissive:
             raise Exception(scode=winerror.DISP_E_BADPARAMCOUNT) # Probably call as PROPGET.
 
         for arg in args[:-1]:
-            print str(arg),
-        print str(args[-1])
+            print(str(arg), end=' ')
+        print(str(args[-1]))
 
 def Test():
     import win32com.server.util, win32com.server.policy
@@ -44,8 +48,8 @@ def Test():
     ob = win32com.server.util.wrap(VeryPermissive(),usePolicy=win32com.server.policy.DynamicPolicy)
     try:
         handle = pythoncom.RegisterActiveObject(ob, iid, 0)
-    except pythoncom.com_error, details:
-        print "Warning - could not register the object in the ROT:", details
+    except pythoncom.com_error as details:
+        print("Warning - could not register the object in the ROT:", details)
         handle = None
     try:
         import win32com.client.dynamic

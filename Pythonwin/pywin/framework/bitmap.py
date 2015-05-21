@@ -1,9 +1,13 @@
+from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
+
 import win32ui
 import win32con
 import win32api
 import string
 import os
-import app
+from . import app
 import sys
 
 from pywin.mfc import docview, window

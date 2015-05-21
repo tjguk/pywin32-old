@@ -1,10 +1,14 @@
+from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
+
 # Command Handlers for the debugger.
 
 # Not in the debugger package, as I always want these interfaces to be
 # available, even if the debugger has not yet been (or can not be)
 # imported
 import win32ui, win32con
-import scriptutils
+from . import scriptutils
 import warnings
 from pywin.scintilla.control import CScintillaEditInterface
 
@@ -33,7 +37,7 @@ class DebuggerCommandHandler:
 			if not methUpdate is None:
 				frame.HookCommandUpdate(methUpdate, id)
 
-		for id in IdToBarNames.keys():
+		for id in list(IdToBarNames.keys()):
 			frame.HookCommand( self.OnDebuggerBar, id)
 			frame.HookCommandUpdate(self.OnUpdateDebuggerBar, id)
 

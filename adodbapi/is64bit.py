@@ -1,3 +1,7 @@
+from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
+
 """is64bit.Python() --> boolean value of detected Python word size. is64bit.os() --> os build version"""
 import sys
 
@@ -30,4 +34,4 @@ def os():
             return False     # is an older version of Python, assume also an older os (best we can guess)
 
 if __name__ == "__main__":
-    print ("is64bit.Python() =", Python(), "is64bit.os() =", os())
+    print(("is64bit.Python() =", Python(), "is64bit.os() =", os()))

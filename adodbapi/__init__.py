@@ -1,3 +1,7 @@
+from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
+
 """adodbapi - A python DB API 2.0 (PEP 249) interface to Microsoft ADO
 
 Copyright (C) 2002 Henrik Ekelund, version 2.1 by Vernon Cole
@@ -9,7 +13,7 @@ import time
 if sys.version_info < (3,0): # in Python 2, define all symbols, just like the bad old way
     from apibase import *
     VariantConversionMap = MultiMap # old name. Should use apibase.MultiMap
-    from ado_consts import *
+    from .ado_consts import *
     _makeByteBuffer = buffer
 else:
     # but if the user is running Python 3, then keep the dictionary clean
@@ -19,7 +23,7 @@ else:
     from .apibase import NUMBER, STRING, BINARY, DATETIME, ROWID
     _makeByteBuffer = bytes
 
-from adodbapi import connect, Connection, __version__, dateconverter, Cursor
+from .adodbapi import connect, Connection, __version__, dateconverter, Cursor
 
 def Binary(aString):
     """This function constructs an object capable of holding a binary (long) string value. """

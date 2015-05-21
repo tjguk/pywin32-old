@@ -1,3 +1,7 @@
+from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
+
 # __init__ for the Pythonwin editor package.
 #
 # We used to support optional editors - eg, color or non-color.
@@ -81,7 +85,7 @@ def GetEditorFontOption(option, default = None):
 	try:
 		return eval(fmt)
 	except:
-		print "WARNING: Invalid font setting in registry - setting ignored"
+		print("WARNING: Invalid font setting in registry - setting ignored")
 		return default
 		
 def SetEditorFontOption(option, newValue):

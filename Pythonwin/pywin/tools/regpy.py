@@ -1,3 +1,7 @@
+from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
+
 # (sort-of) Registry editor
 import win32ui
 import dialog
@@ -45,7 +49,7 @@ class RegistrySheet(dialog.PropertySheet):
 		dialog.PropertySheet.__init__(self, title)
 		self.HookMessage(self.OnActivate, win32con.WM_ACTIVATE)
 	def OnActivate(self, msg):
-		print "OnAcivate"
+		print("OnAcivate")
 
 def t():
 	ps=RegistrySheet('Registry Settings')

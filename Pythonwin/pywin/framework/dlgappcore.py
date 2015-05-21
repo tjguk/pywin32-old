@@ -1,8 +1,12 @@
+from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
+
 # dlgappcore.
 #
 # base classes for dialog based apps.
 
-import app
+from . import app
 import win32ui
 import win32con
 import win32api

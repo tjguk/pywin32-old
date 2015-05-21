@@ -1,3 +1,7 @@
+from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
+
 """Exception and error handling.
 
  This contains the core exceptions that the implementations should raise
@@ -37,7 +41,7 @@ class IActiveScriptError:
 	_com_interfaces_ = [axscript.IID_IActiveScriptError]
 	_public_methods_ = ["GetSourceLineText","GetSourcePosition","GetExceptionInfo"]
 	def _query_interface_(self, iid):
-		print "IActiveScriptError QI - unknown IID", iid
+		print("IActiveScriptError QI - unknown IID", iid)
 		return 0
 	def _SetExceptionInfo(self, exc):
 		self.exception = exc
@@ -174,12 +178,12 @@ class AXScriptException(win32com.server.exception.COMException):
 		# anyway, but on py3k, we *never* will, and str objects there
 		# don't have a decode method...
 		if sys.version_info < (3,):
-			for i in xrange(len(bits)):
+			for i in range(len(bits)):
 				if type(bits[i]) is str:
 				#assert type(bits[i]) is str, type(bits[i])
 					bits[i] = bits[i].decode('utf8')
 
-		self.description = ExpandTabs(u''.join(bits))
+		self.description = ExpandTabs(''.join(bits))
 		# Clear tracebacks etc.
 		tb = tb_top = tb_look = None
 
@@ -226,10 +230,10 @@ def ProcessAXScriptException(scriptingSite, debugManager, exceptionInstance):
 		
 	try:
 		result = scriptingSite.OnScriptError(gateway)
-	except pythoncom.com_error, details:
-		print "**OnScriptError failed:", details
-		print "Exception description:'%s'" % (repr(exceptionInstance.description))
-		print "Exception text:'%s'" % (repr(exceptionInstance.linetext))
+	except pythoncom.com_error as details:
+		print("**OnScriptError failed:", details)
+		print("Exception description:'%s'" % (repr(exceptionInstance.description)))
+		print("Exception text:'%s'" % (repr(exceptionInstance.linetext)))
 		result = winerror.S_FALSE
 
 	if result==winerror.S_OK:

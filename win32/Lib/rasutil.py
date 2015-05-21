@@ -1,3 +1,7 @@
+from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
+
 import win32ras
 
 stateStrings = {
@@ -32,7 +36,7 @@ stateStrings = {
 }
 
 def TestCallback( hras, msg, state, error, exterror):
-	print "Callback called with ", hras, msg, stateStrings[state], error, exterror
+	print("Callback called with ", hras, msg, stateStrings[state], error, exterror)
 
 def test(rasName = "_ Divert Off"):
 	return win32ras.Dial(None, None, (rasName,),TestCallback)

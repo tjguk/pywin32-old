@@ -1,3 +1,7 @@
+from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
+
 import sys
 import unittest
 import pythoncom
@@ -16,7 +20,7 @@ class PippoTester(unittest.TestCase):
         try:
             gtrc = sys.gettotalrefcount
         except AttributeError:
-            print "Please run this with python_d for leak tests"
+            print("Please run this with python_d for leak tests")
             gtrc = lambda: 0
         # note creating self.object() should have consumed our "one time" leaks
         self.object.Method1()
@@ -38,7 +42,7 @@ class PippoTester(unittest.TestCase):
         try:
             gtrc = sys.gettotalrefcount
         except AttributeError:
-            print "Please run this with python_d for leak tests"
+            print("Please run this with python_d for leak tests")
             gtrc = lambda: 0
         # note creating self.object() should have consumed our "one time" leaks
         object = EnsureDispatch("Python.Test.Pippo")

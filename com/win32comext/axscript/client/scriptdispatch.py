@@ -1,3 +1,7 @@
+from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
+
 """dynamic dispatch objects for AX Script.
 
  This is an IDispatch object that a scripting host may use to
@@ -47,7 +51,8 @@ class ScriptDispatch:
 				try:
 					# xxx - todo - work out what code block to pass???
 					return self.engine.ApplyInScriptedSection(None, func, tuple(realArgs))
-				except COMException, (hr, msg, exc, arg):
+				except COMException as xxx_todo_changeme:
+					(hr, msg, exc, arg) = xxx_todo_changeme.args
 					raise
 
 			except AttributeError:
@@ -61,7 +66,7 @@ class ScriptDispatch:
 					raise AttributeError(name) # Not a property.
 			except AttributeError:
 				raise COMException(scode=winerror.DISP_E_MEMBERNOTFOUND)
-			except COMException, instance:
+			except COMException as instance:
 				raise
 			except:
 				ret = self.engine.HandleException()

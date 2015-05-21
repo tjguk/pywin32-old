@@ -1,3 +1,7 @@
+from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
+
 # find.py - Find and Replace
 import win32con, win32api
 import win32ui
@@ -104,7 +108,7 @@ def _FindIt(control, searchParams):
 				try:
 					doc = control.GetParent().GetDocument()
 				except AttributeError:
-					print "Cant find a document for the control!"
+					print("Cant find a document for the control!")
 					doc = None
 			if doc is not None:
 				template = doc.GetDocTemplate()
