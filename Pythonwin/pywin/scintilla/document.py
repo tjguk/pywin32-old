@@ -1,7 +1,11 @@
+from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
+
 import win32ui
 from pywin.mfc import docview
 from pywin import default_scintilla_encoding
-import scintillacon
+from . import scintillacon
 import win32con
 import string
 import os
@@ -55,7 +59,7 @@ class CScintillaDocument(ParentScintillaDocument):
 					self._LoadTextFromFile(f)
 				finally:
 					f.close()
-			except IOError, e:
+			except IOError as e:
 				rc = win32ui.MessageBox("Cannot create the file %s" % filename)
 		return 1
 
@@ -125,10 +129,10 @@ class CScintillaDocument(ParentScintillaDocument):
 		try:
 			dec = text.decode(source_encoding)
 		except UnicodeError:
-			print "WARNING: Failed to decode bytes from '%s' encoding - treating as latin1" % source_encoding
+			print("WARNING: Failed to decode bytes from '%s' encoding - treating as latin1" % source_encoding)
 			dec = text.decode('latin1')
 		except LookupError:
-			print "WARNING: Invalid encoding '%s' specified - treating as latin1" % source_encoding
+			print("WARNING: Invalid encoding '%s' specified - treating as latin1" % source_encoding)
 			dec = text.decode('latin1')
 		# and put it back as utf8 - this shouldn't fail.
 		text = dec.encode(default_scintilla_encoding)

@@ -1,3 +1,7 @@
+from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
+
 # Classes which describe interfaces.
 
 from win32com.server.exception import Exception
@@ -166,7 +170,7 @@ class DebugDocumentText(DebugDocument):
         """Params are integers.
         Return value must be PyIDebugDocumentContext object
         """
-        print self
+        print(self)
         RaiseNotImpl("GetContextOfPosition")
 
 class DebugDocumentTextExternalAuthor:

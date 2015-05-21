@@ -1,3 +1,7 @@
+from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
+
 # Color Editor originally by Neil Hodgson, but restructured by mh to integrate
 # even tighter into Pythonwin.
 import win32ui
@@ -267,7 +271,7 @@ class SyntEditView(SyntEditViewParent):
 		elif cid == win32ui.ID_VIEW_FOLD_COLLAPSE:
 			self.FoldCollapseEvent(None)
 		else:
-			print "Unknown collapse/expand ID"
+			print("Unknown collapse/expand ID")
 	def OnUpdateViewFold(self, cmdui): # Update the tick on the UI.
 		if not self.bFolding:
 			cmdui.Enable(0)
@@ -352,14 +356,14 @@ class SyntEditView(SyntEditViewParent):
 			self.Colorize()
 			maxLine = self.GetLineCount()
 			# Find the first line, and check out its state.
-			for lineSeek in xrange(maxLine):
+			for lineSeek in range(maxLine):
 				if self.SCIGetFoldLevel(lineSeek) & scintillacon.SC_FOLDLEVELHEADERFLAG:
 					expanding = not self.SCIGetFoldExpanded(lineSeek)
 					break
 			else:
 				# no folds here!
 				return
-			for lineSeek in xrange(lineSeek, maxLine):
+			for lineSeek in range(lineSeek, maxLine):
 				level = self.SCIGetFoldLevel(lineSeek)
 				level_no = level & scintillacon.SC_FOLDLEVELNUMBERMASK - scintillacon.SC_FOLDLEVELBASE
 				is_header = level & scintillacon.SC_FOLDLEVELHEADERFLAG
@@ -380,7 +384,7 @@ class SyntEditView(SyntEditViewParent):
 		self.Colorize()
 		levels=[scintillacon.SC_FOLDLEVELBASE]
 		## Scintilla's level number is based on amount of whitespace indentation
-		for lineno in xrange(self.GetLineCount()):
+		for lineno in range(self.GetLineCount()):
 			level = self.SCIGetFoldLevel(lineno)
 			if not level & scintillacon.SC_FOLDLEVELHEADERFLAG:
 				continue
@@ -406,7 +410,7 @@ class SyntEditView(SyntEditViewParent):
 		self.Colorize()
 		levels=[scintillacon.SC_FOLDLEVELBASE]
 		## Scintilla's level number is based on amount of whitespace indentation
-		for lineno in xrange(self.GetLineCount()):
+		for lineno in range(self.GetLineCount()):
 			level = self.SCIGetFoldLevel(lineno)
 			if not level & scintillacon.SC_FOLDLEVELHEADERFLAG:
 				continue
@@ -437,7 +441,7 @@ class SyntEditView(SyntEditViewParent):
 		if not self.bFolding:
 			return 1
 		win32ui.DoWaitCursor(1)
-		for lineno in xrange(0, self.GetLineCount()):
+		for lineno in range(0, self.GetLineCount()):
 			if self.SCIGetFoldLevel(lineno) & scintillacon.SC_FOLDLEVELHEADERFLAG and \
 					not self.SCIGetFoldExpanded(lineno):
 				self.SCIToggleFold(lineno)
@@ -458,7 +462,7 @@ class SyntEditView(SyntEditViewParent):
 			return 1
 		win32ui.DoWaitCursor(1)
 		self.Colorize()
-		for lineno in xrange(0, self.GetLineCount()):
+		for lineno in range(0, self.GetLineCount()):
 			if self.SCIGetFoldLevel(lineno) & scintillacon.SC_FOLDLEVELHEADERFLAG and \
 					self.SCIGetFoldExpanded(lineno):
 				self.SCIToggleFold(lineno)

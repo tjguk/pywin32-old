@@ -1,4 +1,8 @@
-import dbgcon
+from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
+
+from . import dbgcon
 from pywin.mfc import dialog
 import win32ui
 

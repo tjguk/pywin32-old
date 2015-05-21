@@ -1,3 +1,4 @@
+from __future__ import print_function
 build_id="219.5" # may optionally include a ".{patchno}" suffix.
 # Putting buildno at the top prevents automatic __doc__ assignment, and
 # I *want* the build number at the top :)
@@ -11,7 +12,7 @@ to build and install into your current Python installation.
 
 These extensions require a number of libraries to build, some of which may
 require you to install special SDKs or toolkits.  This script will attempt
-to build as many as it can, and at the end of the build will report any 
+to build as many as it can, and at the end of the build will report any
 extension modules that could not be built and why.
 
 This has got complicated due to the various different versions of
@@ -117,7 +118,7 @@ if not "." in build_id_patch:
     build_id_patch = build_id_patch + ".0"
 pywin32_version="%d.%d.%s" % (sys.version_info[0], sys.version_info[1],
                               build_id_patch)
-print "Building pywin32", pywin32_version
+print("Building pywin32", pywin32_version)
 
 try:
     this_file = __file__
@@ -146,7 +147,7 @@ def find_platform_sdk_dir():
     sdkdir = os.environ.get("MSSdk")
     if sdkdir:
         if DEBUG:
-            print "PSDK: try %%MSSdk%%: '%s'" % sdkdir
+            print("PSDK: try %%MSSdk%%: '%s'" % sdkdir)
         if os.path.isfile(os.path.join(sdkdir, landmark)):
             return sdkdir
     # 2. The "Install Dir" value in the
@@ -161,8 +162,8 @@ def find_platform_sdk_dir():
         pass
     else:
         if DEBUG:
-            print r"PSDK: try 'HKLM\Software\Microsoft\MicrosoftSDK"\
-                   "\Directories\Install Dir': '%s'" % sdkdir
+            print(r"PSDK: try 'HKLM\Software\Microsoft\MicrosoftSDK"\
+                   "\Directories\Install Dir': '%s'" % sdkdir)
         if os.path.isfile(os.path.join(sdkdir, landmark)):
             return sdkdir
     # 3. Each installed SDK (not just the platform SDK) seems to have GUID
@@ -182,9 +183,9 @@ def find_platform_sdk_dir():
                 pass
             else:
                 if DEBUG:
-                    print r"PSDK: try 'HKLM\Software\Microsoft\MicrosoftSDK"\
+                    print(r"PSDK: try 'HKLM\Software\Microsoft\MicrosoftSDK"\
                            "\InstallSDKs\%s\Install Dir': '%s'"\
-                           % (guid, sdkdir)
+                           % (guid, sdkdir))
                 if os.path.isfile(os.path.join(sdkdir, landmark)):
                     return sdkdir
             i += 1
@@ -199,10 +200,42 @@ def find_platform_sdk_dir():
         pass
     else:
         if DEBUG:
-            print r"PSDK: try 'HKLM\Software\Microsoft\MicrosoftSDKs"\
-                   "\Windows\CurrentInstallFolder': '%s'" % sdkdir
+            print(r"PSDK: try 'HKLM\Software\Microsoft\MicrosoftSDKs"\
+                   "\Windows\CurrentInstallFolder': '%s'" % sdkdir)
         if os.path.isfile(os.path.join(sdkdir, landmark)):
             return sdkdir
+    
+    # 4a. Vista's SDK when the CurrentInstallFolder isn't a complete installation
+    # NB Try to find the most recent one which has a complete install; this
+    # involves selecting them all and then selecting the last based on the
+    # version number
+    possible_sdkdirs = []
+    try:
+        key = _winreg.OpenKey(_winreg.HKEY_LOCAL_MACHINE,
+                              r"Software\Microsoft\Microsoft SDKs\Windows")
+    except EnvironmentError:
+        pass
+    else:
+        i = 0
+        while True:
+            try:
+                sdk_version = _winreg.EnumKey(key, i)
+            except EnvironmentError:
+                break
+            sdk_version_key = _winreg.OpenKey(key, sdk_version)
+            try:
+                sdkdir, _ = _winreg.QueryValueEx(sdk_version_key, "InstallationFolder")
+                if os.path.isfile(os.path.join(sdkdir, landmark)):
+                    possible_sdkdirs.append((sdk_version, sdkdir))
+            except EnvironmentError:
+                pass
+            i += 1
+    
+    if possible_sdkdirs:
+        _, sdkdir = max(possible_sdkdirs)
+        if DEBUG:
+            print(r"Found highest complete SDK installed at", sdkdir)
+        return sdkdir
 
     # 5. Failing this just try a few well-known default install locations.
     progfiles = os.environ.get("ProgramFiles", r"C:\Program Files")
@@ -212,9 +245,11 @@ def find_platform_sdk_dir():
     ]
     for sdkdir in defaultlocs:
         if DEBUG:
-            print "PSDK: try default location: '%s'" % sdkdir
+            print("PSDK: try default location: '%s'" % sdkdir)
         if os.path.isfile(os.path.join(sdkdir, landmark)):
             return sdkdir
+    
+    raise RuntimeError("No SDK to be found")
 
 
 # Some nasty hacks to prevent most of our extensions using a manifest, as
@@ -246,7 +281,7 @@ if sys.version_info > (2,6):
     # always monkeypatch it in even though it will only be called in 2.7
     # and 3.2+.
     MSVCCompiler.manifest_get_embed_info = manifest_get_embed_info
-        
+
     def monkeypatched_spawn(self, cmd):
         is_link = cmd[0].endswith("link.exe") or cmd[0].endswith('"link.exe"')
         is_mt = cmd[0].endswith("mt.exe") or cmd[0].endswith('"mt.exe"')
@@ -294,12 +329,13 @@ if sys.version_info > (2,6):
 
 
 sdk_dir = find_platform_sdk_dir()
+print("Using platform SDK from", sdk_dir)
 
 class WinExt (Extension):
     # Base class for all win32 extensions, with some predefined
     # library and include dirs, and predefined windows libraries.
     # Additionally a method to parse .def files into lists of exported
-    # symbols, and to read 
+    # symbols, and to read
     def __init__ (self, name, sources,
                   include_dirs=[],
                   define_macros=None,
@@ -452,7 +488,7 @@ class WinExt (Extension):
             self.extra_link_args.append("/DEBUG")
             self.extra_link_args.append("/PDB:%s\%s.pdb" %
                                        (pch_dir, self.name))
-            # enable unwind semantics - some stuff needs it and I can't see 
+            # enable unwind semantics - some stuff needs it and I can't see
             # it hurting
             self.extra_compile_args.append("/EHsc")
 
@@ -538,8 +574,8 @@ class WinExt_win32com(WinExt):
 # * Require use of the Exchange 2000 SDK - this works for both VC6 and 7
 class WinExt_win32com_mapi(WinExt_win32com):
     def __init__ (self, name, **kw):
-        # The Exchange 2000 SDK seems to install itself without updating 
-        # LIB or INCLUDE environment variables.  It does register the core 
+        # The Exchange 2000 SDK seems to install itself without updating
+        # LIB or INCLUDE environment variables.  It does register the core
         # directory in the registry tho - look it up
         sdk_install_dir = None
         libs = kw.get("libraries", "")
@@ -565,7 +601,7 @@ class WinExt_win32com_mapi(WinExt_win32com):
             d = os.path.join(sdk_install_dir, "SDK", "Lib")
             if os.path.isdir(d):
                 kw.setdefault("library_dirs", []).insert(0, d)
-                
+
         # The stand-alone exchange SDK has these libs
         if distutils.util.get_platform() == 'win-amd64':
             # Additional utility functions are only available for 32-bit builds.
@@ -607,7 +643,7 @@ if do_2to3:
                     urllib xrange""".split()
         fqfixers = ['lib2to3.fixes.fix_' + f for f in fixers]
 
-        options = dict(doctests_only=False, fix=[], list_fixes=[], 
+        options = dict(doctests_only=False, fix=[], list_fixes=[],
                        print_function=False, verbose=False,
                        write=True)
         r = RefactoringTool(fqfixers, options)
@@ -638,20 +674,20 @@ if do_2to3:
 
         def run(self):
             self.updated_files = []
-    
+
             # Base class code
             if self.py_modules:
                 self.build_modules()
             if self.packages:
                 self.build_packages()
                 self.build_package_data()
-    
+
             # 2to3
             refactor_filenames(self.updated_files)
-    
+
             # Remaining base class code
             self.byte_compile(self.get_outputs(include_bytecode=0))
-    
+
         def build_module(self, module, module_file, package):
             res = build_py.build_module(self, module, module_file, package)
             if res[1]:
@@ -684,8 +720,8 @@ class my_build(build):
             f = open(ver_fname, "w")
             f.write("%s\n" % build_id)
             f.close()
-        except EnvironmentError, why:
-            print "Failed to open '%s': %s" % (ver_fname, why)
+        except EnvironmentError as why:
+            print("Failed to open '%s': %s" % (ver_fname, why))
 
 class my_build_ext(build_ext):
 
@@ -966,7 +1002,7 @@ class my_build_ext(build_ext):
         # First, sanity-check the 'extensions' list
         self.check_extensions_list(self.extensions)
 
-        self.found_libraries = {}        
+        self.found_libraries = {}
 
         if not hasattr(self.compiler, 'initialized'):
             # 2.3 and earlier initialized at construction
@@ -995,7 +1031,7 @@ class my_build_ext(build_ext):
             if why is not None:
                 self.excluded_extensions.append((ext, why))
                 assert why, "please give a reason, or None"
-                print "Skipping %s: %s" % (ext.name, why)
+                print("Skipping %s: %s" % (ext.name, why))
                 continue
 
             try:
@@ -1068,8 +1104,8 @@ class my_build_ext(build_ext):
                 for f in mfc_files:
                     self.copy_file(
                             os.path.join(mfc_dir, f), target_dir)
-        except (EnvironmentError, RuntimeError), exc:
-            print "Can't find an installed VC for the MFC DLLs:", exc
+        except (EnvironmentError, RuntimeError) as exc:
+            print("Can't find an installed VC for the MFC DLLs:", exc)
 
 
     def build_exefile(self, ext):
@@ -1193,7 +1229,7 @@ class my_build_ext(build_ext):
         if why is not None:
             self.excluded_extensions.append((ext, why))
             assert why, "please give a reason, or None"
-            print "Skipping %s: %s" % (ext.name, why)
+            print("Skipping %s: %s" % (ext.name, why))
             return
         self.current_extension = ext
 
@@ -1420,7 +1456,7 @@ class my_install(install):
             filename = os.path.join(self.prefix, "Scripts", "pywin32_postinstall.py")
             if not os.path.isfile(filename):
                 raise RuntimeError("Can't find '%s'" % (filename,))
-            print "Executing post install script..."
+            print("Executing post install script...")
             # What executable to use?  This one I guess.
             os.spawnl(os.P_NOWAIT, sys.executable,
                       sys.executable, filename,
@@ -1496,7 +1532,7 @@ class my_compiler(base_compiler):
             args.append(output_filename)
             try:
                 self.spawn(args)
-            except DistutilsExecError, msg:
+            except DistutilsExecError as msg:
                 log.info("VersionStamp failed: %s", msg)
                 ok = False
         if not ok:
@@ -1513,7 +1549,7 @@ class my_install_data(install_data):
         if self.install_dir is None:
             installobj = self.distribution.get_command_obj('install')
             self.install_dir = installobj.install_lib
-        print 'Installing data files to %s' % self.install_dir
+        print('Installing data files to %s' % self.install_dir)
         install_data.finalize_options(self)
 
     def copy_file(self, src, dest):
@@ -1651,7 +1687,7 @@ for info in (
     if len(info)>4:
         sources = info[4].split()
     extra_compile_args = []
-    ext = WinExt_win32(name, 
+    ext = WinExt_win32(name,
                  libraries=lib_names,
                  extra_compile_args = extra_compile_args,
                  windows_h_version = windows_h_ver,
@@ -1677,7 +1713,7 @@ win32_extensions += [
            delay_load_libraries="powrprof",
            windows_h_version=0x0500,
         ),
-    WinExt_win32("win32gui", 
+    WinExt_win32("win32gui",
            sources = """
                 win32/src/win32dynamicdialog.cpp
                 win32/src/win32gui.i
@@ -2396,7 +2432,7 @@ def convert_optional_data_files(files):
     for file in files:
         try:
             temp = convert_data_files([file])
-        except RuntimeError, details:
+        except RuntimeError as details:
             if not str(details.args[0]).startswith("No file"):
                 raise
             log.info('NOTE: Optional file %s not found - skipping' % file)
@@ -2407,8 +2443,8 @@ def convert_optional_data_files(files):
 ################################################################
 if len(sys.argv)==1:
     # distutils will print usage - print our docstring first.
-    print __doc__
-    print "Standard usage information follows:"
+    print(__doc__)
+    print("Standard usage information follows:")
 
 packages=['win32com',
           'win32com.client',
@@ -2437,7 +2473,7 @@ packages=['win32com',
           'win32comext.directsound.test',
           'win32comext.authorization',
           'win32comext.bits',
-          
+
           'pythonwin.pywin',
           'pythonwin.pywin.debugger',
           'pythonwin.pywin.dialogs',
@@ -2511,10 +2547,10 @@ dist = setup(name="pywin32",
       packages = packages,
       py_modules = py_modules,
 
-      data_files=[('', (os.path.join(gettempdir(),'pywin32.version.txt'),))] + 
+      data_files=[('', (os.path.join(gettempdir(),'pywin32.version.txt'),))] +
         convert_optional_data_files([
                 'PyWin32.chm',
-                ]) + 
+                ]) +
         convert_data_files([
                 'pythonwin/pywin/*.cfg',
                 'pythonwin/pywin/Demos/*.py',
@@ -2596,10 +2632,10 @@ if 'build_ext' in dist.command_obj:
     if 'build_ext' in dist.command_obj:
         excluded_extensions = dist.command_obj['build_ext'].excluded_extensions
         if excluded_extensions:
-            print "*** NOTE: The following extensions were NOT %s:" % what_string
+            print("*** NOTE: The following extensions were NOT %s:" % what_string)
             for ext, why in excluded_extensions:
-                print " %s: %s" % (ext.name, why)
-            print "For more details on installing the correct libraries and headers,"
-            print "please execute this script with no arguments (or see the docstring)"
+                print(" %s: %s" % (ext.name, why))
+            print("For more details on installing the correct libraries and headers,")
+            print("please execute this script with no arguments (or see the docstring)")
         else:
-            print "All extension modules %s OK" % (what_string,)
+            print("All extension modules %s OK" % (what_string,))

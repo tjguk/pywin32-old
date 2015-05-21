@@ -1,3 +1,7 @@
+from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
+
 # A version of the ActiveScripting engine that enables rexec support
 # This version supports hosting by IE - however, due to Python's
 # rexec module being neither completely trusted nor private, it is
@@ -10,7 +14,7 @@
 import pythoncom
 from win32com.axscript import axscript
 import winerror
-import pyscript
+from . import pyscript
 
 INTERFACE_USES_DISPEX = 0x00000004	# Object knows to use IDispatchEx
 INTERFACE_USES_SECURITY_MANAGER = 0x00000008 # Object knows to use IInternetHostSecurityManager
@@ -35,9 +39,9 @@ class PyScriptRExec(pyscript.PyScript):
 		       axscript.INTERFACESAFE_FOR_UNTRUSTED_CALLER
 
 if __name__=='__main__':
-	print "WARNING: By registering this engine, you are giving remote HTML code"
-	print "the ability to execute *any* code on your system."
-	print
-	print "You almost certainly do NOT want to do this."
-	print "You have been warned, and are doing this at your own (significant) risk"
+	print("WARNING: By registering this engine, you are giving remote HTML code")
+	print("the ability to execute *any* code on your system.")
+	print()
+	print("You almost certainly do NOT want to do this.")
+	print("You have been warned, and are doing this at your own (significant) risk")
 	pyscript.Register(PyScriptRExec)

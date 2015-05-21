@@ -1,3 +1,7 @@
+from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
+
 # Code that allows Pythonwin to pretend it is IDLE
 # (at least as far as most IDLE extensions are concerned)
 
@@ -24,7 +28,7 @@ def GetIDLEModule(module):
 		# First get it from Pythonwin it is exists.
 		modname = "pywin.idle." + module
 		__import__(modname)
-	except ImportError, details:
+	except ImportError as details:
 		msg = "The IDLE extension '%s' can not be located.\r\n\r\n" \
 			  "Please correct the installation and restart the" \
 			  " application.\r\n\r\n%s" % (module, details)
@@ -73,7 +77,7 @@ class IDLEEditorWindow:
 		self.edit = self.text = None
 		self.extension_menus = None
 		try:
-			for ext in self.extensions.itervalues():
+			for ext in self.extensions.values():
 				closer = getattr(ext, "close", None)
 				if closer is not None:
 					closer()
@@ -98,7 +102,7 @@ class IDLEEditorWindow:
 		# Get all menu items for the menu name (eg, "edit")
 		bindings = self.edit.bindings
 		ret = []
-		for ext in self.extensions.itervalues():
+		for ext in self.extensions.values():
 			menudefs = getattr(ext, "menudefs", [])
 			for name, items in menudefs:
 				if name == menu_name:
@@ -453,12 +457,12 @@ class TkText:
 def TestCheck(index, edit, expected=None):
 	rc = TkIndexToOffset(index, edit, {})
 	if rc != expected:
-		print "ERROR: Index", index,", expected", expected, "but got", rc
+		print("ERROR: Index", index,", expected", expected, "but got", rc)
 
 def TestGet(fr, to, t, expected):
 	got = t.get(fr, to)
 	if got != expected:
-		print "ERROR: get(%s, %s) expected %s, but got %s" % (repr(fr), repr(to), repr(expected), repr(got))
+		print("ERROR: get(%s, %s) expected %s, but got %s" % (repr(fr), repr(to), repr(expected), repr(got)))
 
 def test():
 	import pywin.framework.editor

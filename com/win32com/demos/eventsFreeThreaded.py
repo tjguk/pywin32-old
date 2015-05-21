@@ -1,3 +1,7 @@
+from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
+
 # A sample originally provided by Richard Bell, and modified by Mark Hammond.
 
 # This sample demonstrates how to use COM events in a free-threaded world.
@@ -45,12 +49,12 @@ class ExplorerEvents:
         # situation may be different.   Caveat programmer.
         #
         thread = win32api.GetCurrentThreadId()
-        print "OnDocumentComplete event processed on thread %d"%thread
+        print("OnDocumentComplete event processed on thread %d"%thread)
         # Set the event our main thread is waiting on.
         win32event.SetEvent(self.event)
     def OnQuit(self):
         thread = win32api.GetCurrentThreadId()
-        print "OnQuit event processed on thread %d"%thread
+        print("OnQuit event processed on thread %d"%thread)
         win32event.SetEvent(self.event)
 
 def TestExplorerEvents():
@@ -58,19 +62,19 @@ def TestExplorerEvents():
         "InternetExplorer.Application", ExplorerEvents)
 
     thread = win32api.GetCurrentThreadId()
-    print 'TestExplorerEvents created IE object on thread %d'%thread
+    print('TestExplorerEvents created IE object on thread %d'%thread)
 
     iexplore.Visible = 1
     try:
         iexplore.Navigate(win32api.GetFullPathName('..\\readme.htm'))
-    except pythoncom.com_error, details:
-        print "Warning - could not open the test HTML file", details
+    except pythoncom.com_error as details:
+        print("Warning - could not open the test HTML file", details)
 
     # In this free-threaded example, we can simply wait until an event has 
     # been set - we will give it 2 seconds before giving up.
     rc = win32event.WaitForSingleObject(iexplore.event, 2000)
     if rc != win32event.WAIT_OBJECT_0:
-        print "Document load event FAILED to fire!!!"
+        print("Document load event FAILED to fire!!!")
 
     iexplore.Quit()
     # Now we can do the same thing to wait for exit!
@@ -79,10 +83,10 @@ def TestExplorerEvents():
 
     rc = win32event.WaitForSingleObject(iexplore.event, 2000)
     if rc != win32event.WAIT_OBJECT_0:
-        print "OnQuit event FAILED to fire!!!"
+        print("OnQuit event FAILED to fire!!!")
 
     iexplore = None
-    print "Finished the IE event sample!"
+    print("Finished the IE event sample!")
 
 if __name__=='__main__':
     TestExplorerEvents()

@@ -1,3 +1,7 @@
+from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
+
 #SGrepMDI is by Gordon McMillan (gmcm@hypernet.com)
 #It does basically what Find In Files does in MSVC with a couple enhancements.
 # - It saves any directories in the app's ini file (if you want to get rid
@@ -28,7 +32,7 @@ import glob
 import os
 import stat
 import glob
-import scriptutils
+from . import scriptutils
 
 def getsubdirs(d):
 	dlist = []
@@ -88,7 +92,7 @@ class dirpath:
 									if sd not in dirs:
 										dirs[sd] = None
 		self.dirs = []
-		for d in dirs.keys():
+		for d in list(dirs.keys()):
 			self.dirs.append(d)
 
 	def __getitem__(self, key):

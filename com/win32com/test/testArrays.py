@@ -1,3 +1,7 @@
+from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
+
 # Originally contributed by Stefan Schukat as part of this arbitrary-sized
 # arrays patch.
 from win32com.client import gencache
@@ -76,7 +80,7 @@ FourD = [
           ]
 
 LargeD = [
-    [ [range(10)] * 10],
+    [ [list(range(10))] * 10],
 ] * 512
 
 def _normalize_array(a):
@@ -119,6 +123,6 @@ class ArrayTest(util.TestCase):
 if __name__ == "__main__":
     try:
         util.testmain()
-    except SystemExit, rc:
+    except SystemExit as rc:
         if not rc:
             raise

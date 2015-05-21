@@ -1,3 +1,7 @@
+from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
+
 # testExplorer -
 
 import sys
@@ -37,7 +41,7 @@ def TestExplorerEvents():
         raise RuntimeError("The IE event did not appear to fire!")
     ie.Quit()
     ie = None
-    print "IE Event tests worked."
+    print("IE Event tests worked.")
 
 def TestObjectFromWindow():
     # Check we can use ObjectFromLresult to get the COM object from the
@@ -95,7 +99,7 @@ def TestAll():
             gencache.EnsureModule("{EAB22AC0-30C1-11CF-A7EB-0000C05BAE0B}", 0, 1, 1)
             iexplore = win32com.client.Dispatch("InternetExplorer.Application")
             TestExplorer(iexplore)
-        except pythoncom.com_error, exc:
+        except pythoncom.com_error as exc:
             if exc.hresult!=winerror.RPC_E_DISCONNECTED: # user closed the app!
                 raise
     finally:

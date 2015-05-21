@@ -1,3 +1,7 @@
+from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
+
 import win32com.server.util
 import win32com.client
 import pythoncom
@@ -31,7 +35,7 @@ class PythonSemanticClass:
         self.list.remove(value)
 
 def DispExTest(ob):
-    if not __debug__: print "WARNING: Tests dressed up as assertions are being skipped!"
+    if not __debug__: print("WARNING: Tests dressed up as assertions are being skipped!")
     assert ob.GetDispID("Add", 0)==10, "Policy did not honour the dispid"
 # Not impl
 #       assert ob.GetMemberName(10, 0)=="add", "Policy did not give me the correct function for the dispid"
@@ -44,7 +48,8 @@ def DispExTest(ob):
         try:
             dispid = ob.GetNextDispID(0, dispid)
             dispids.append(dispid)
-        except pythoncom.com_error, (hr, desc, exc, arg):
+        except pythoncom.com_error as xxx_todo_changeme:
+            (hr, desc, exc, arg) = xxx_todo_changeme.args
             assert hr==winerror.S_FALSE, "Bad result at end of enum"
             break
     dispids.sort()

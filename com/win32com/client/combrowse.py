@@ -1,3 +1,7 @@
+from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
+
 """A utility for browsing COM objects.
 
  Usage:
@@ -537,4 +541,4 @@ if __name__=='__main__':
     ni = pythoncom._GetInterfaceCount()
     ng = pythoncom._GetGatewayCount()
     if ni or ng:
-        print "Warning - exiting with %d/%d objects alive" % (ni,ng)
+        print("Warning - exiting with %d/%d objects alive" % (ni,ng))

@@ -1,3 +1,7 @@
+from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
+
 # pydumper.py
 #
 # This is being worked on - it does not yet work at all, in ay way
@@ -13,10 +17,10 @@
 # as a scripting language - meaning the dumps produced can be quite dynamic,
 # and based on the script code you execute.
 
-import pyscript
+from . import pyscript
 from win32com.axscript import axscript
 
-from pyscript import RaiseAssert, trace, Exception, SCRIPTTEXT_FORCEEXECUTION
+from .pyscript import RaiseAssert, trace, Exception, SCRIPTTEXT_FORCEEXECUTION
 
 PyDump_CLSID = '{ac527e60-c693-11d0-9c25-00aa00125a98}'
 
@@ -47,7 +51,7 @@ def Register():
 	lcid = 0x0409 # // english
 	policy = None # "win32com.axscript.client.axspolicy.AXScriptPolicy"
 
-	print "Registering COM server%s..." % debug_desc
+	print("Registering COM server%s..." % debug_desc)
 	from win32com.server.register import RegisterServer
 
 	languageName = "PyDump"
@@ -62,7 +66,7 @@ def Register():
 	# Basic Registration for wsh.
 	win32com.server.register._set_string(".pysDump", "pysDumpFile")
 	win32com.server.register._set_string("pysDumpFile\\ScriptEngine", languageName)
-	print "Dumping Server registered."
+	print("Dumping Server registered.")
 	
 if __name__=='__main__':
 	Register()

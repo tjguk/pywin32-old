@@ -1,3 +1,7 @@
+from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
+
 import win32com.axscript.axscript
 import winerror
 from win32com.axscript import axscript
@@ -63,7 +67,7 @@ class AXSite:
   def __init__(self, objModel={}, engine = None, lcid=0):
     self.lcid = lcid
     self.objModel = { }
-    for name, object in objModel.iteritems():
+    for name, object in objModel.items():
       # Gregs code did string.lower this - I think that is callers job if he wants!
       self.objModel[name] = object
 
@@ -81,7 +85,7 @@ class AXSite:
       newEngine = engine
     self.engine = newEngine
     flags = axscript.SCRIPTITEM_ISVISIBLE | axscript.SCRIPTITEM_NOCODE | axscript.SCRIPTITEM_GLOBALMEMBERS | axscript.SCRIPTITEM_ISPERSISTENT
-    for name in self.objModel.iterkeys():
+    for name in self.objModel.keys():
       newEngine.AddNamedItem(name, flags)
       newEngine.SetScriptState(axscript.SCRIPTSTATE_INITIALIZED)
     return newEngine

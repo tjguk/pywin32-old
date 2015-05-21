@@ -1,9 +1,13 @@
+from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
+
 # toolmenu.py
 
 import win32ui
 import win32con
 import win32api
-import app
+from . import app
 import sys
 import string
 
@@ -100,13 +104,13 @@ def HandleToolCommand(cmd, code):
 		pass
 	
 	try:
-		exec "%s\n" % pyCmd
+		exec("%s\n" % pyCmd)
 		worked=1
 	except SystemExit:
 		# The program raised a SystemExit - ignore it.
 		worked = 1
 	except:
-		print "Failed to execute command:\n%s" % pyCmd
+		print("Failed to execute command:\n%s" % pyCmd)
 		traceback.print_exc()
 		worked=0
 	if oldFlag is not None:
