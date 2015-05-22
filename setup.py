@@ -73,14 +73,21 @@ import types, glob
 import re
 from tempfile import gettempdir
 import shutil
+import logging
+log = logging.getLogger("pywin32")
+
+try:
+    import _winreg
+except ImportError:
+    import winreg as _winreg
+try:
+    unicode
+except NameError:
+    UNICODE_MODE = True
+else:
+    UNICODE_MODE = False
 
 is_py3k = sys.version_info > (3,) # get this out of the way early on...
-# We have special handling for _winreg so our setup3.py script can avoid
-# using the 'imports' fixer and therefore start much faster...
-if is_py3k:
-    import winreg as _winreg
-else:
-    import _winreg
 
 # The rest of our imports.
 from distutils.core import setup, Extension, Command
@@ -92,11 +99,7 @@ from distutils.command.install_data import install_data
 from distutils.command.build_py import build_py
 from distutils.command.build_scripts import build_scripts
 
-try:
-    from distutils.command.bdist_msi import bdist_msi
-except ImportError:
-    # py24 and earlier
-    bdist_msi = None
+from distutils.command.bdist_msi import bdist_msi
 
 from distutils.msvccompiler import get_build_version
 from distutils import log
@@ -191,19 +194,21 @@ def find_platform_sdk_dir():
             i += 1
     except EnvironmentError:
         pass
-    # 4.  Vista's SDK
-    try:
-        key = _winreg.OpenKey(_winreg.HKEY_LOCAL_MACHINE,
-                              r"Software\Microsoft\Microsoft SDKs\Windows")
-        sdkdir, ignore = _winreg.QueryValueEx(key, "CurrentInstallFolder")
-    except EnvironmentError:
-        pass
-    else:
-        if DEBUG:
-            print(r"PSDK: try 'HKLM\Software\Microsoft\MicrosoftSDKs"\
-                   "\Windows\CurrentInstallFolder': '%s'" % sdkdir)
-        if os.path.isfile(os.path.join(sdkdir, landmark)):
-            return sdkdir
+    
+    if False:
+        # 4.  Vista's SDK
+        try:
+            key = _winreg.OpenKey(_winreg.HKEY_LOCAL_MACHINE,
+                                  r"Software\Microsoft\Microsoft SDKs\Windows")
+            sdkdir, ignore = _winreg.QueryValueEx(key, "CurrentInstallFolder")
+        except EnvironmentError:
+            pass
+        else:
+            if DEBUG:
+                print(r"PSDK: try 'HKLM\Software\Microsoft\MicrosoftSDKs"\
+                       "\Windows\CurrentInstallFolder': '%s'" % sdkdir)
+            if os.path.isfile(os.path.join(sdkdir, landmark)):
+                return sdkdir
     
     # 4a. Vista's SDK when the CurrentInstallFolder isn't a complete installation
     # NB Try to find the most recent one which has a complete install; this
@@ -525,7 +530,7 @@ class WinExt (Extension):
             # for py3k, false for py2
             unicode_mode = self.unicode_mode
             if unicode_mode is None:
-                unicode_mode = is_py3k
+                unicode_mode = UNICODE_MODE
             if unicode_mode:
                 self.extra_compile_args.append("/DUNICODE")
                 self.extra_compile_args.append("/D_UNICODE")
@@ -631,84 +636,6 @@ class WinExt_system32(WinExt):
 
 ################################################################
 # Extensions to the distutils commands.
-
-# Start with 2to3 related stuff for py3k.
-do_2to3 = is_py3k
-if do_2to3:
-    def refactor_filenames(filenames):
-        from lib2to3.refactor import RefactoringTool
-        # we only need some fixers.
-        fixers = """basestring exec except dict import imports next nonzero
-                    print raise raw_input long standarderror types unicode
-                    urllib xrange""".split()
-        fqfixers = ['lib2to3.fixes.fix_' + f for f in fixers]
-
-        options = dict(doctests_only=False, fix=[], list_fixes=[],
-                       print_function=False, verbose=False,
-                       write=True)
-        r = RefactoringTool(fqfixers, options)
-        for updated_file in filenames:
-            if os.path.splitext(updated_file)[1] not in ['.py', '.pys']:
-                continue
-            log.info("Refactoring %s" % updated_file)
-            try:
-                r.refactor_file(updated_file, write=True, doctests_only=False)
-                if os.path.exists(updated_file + ".bak"):
-                    os.unlink(updated_file + ".bak")
-            except Exception:
-                log.warn("WARNING: Failed to 2to3 %s: %s" % (updated_file, sys.exc_info()[1]))
-else:
-    # py2k - nothing to do.
-    def refactor_filenames(filenames):
-        pass
-
-# 'build_py' command
-if do_2to3:
-    # Force 2to3 to be run for py3k versions.
-    class my_build_py(build_py):
-        def finalize_options(self):
-            build_py.finalize_options(self)
-            # must force as the 2to3 conversion happens in place so an
-            # interrupted build can cause py2 syntax files in a py3k build.
-            self.force = True
-
-        def run(self):
-            self.updated_files = []
-
-            # Base class code
-            if self.py_modules:
-                self.build_modules()
-            if self.packages:
-                self.build_packages()
-                self.build_package_data()
-
-            # 2to3
-            refactor_filenames(self.updated_files)
-
-            # Remaining base class code
-            self.byte_compile(self.get_outputs(include_bytecode=0))
-
-        def build_module(self, module, module_file, package):
-            res = build_py.build_module(self, module, module_file, package)
-            if res[1]:
-                # file was copied
-                self.updated_files.append(res[0])
-            return res
-else:
-    my_build_py = build_py # default version.
-
-# 'build_scripts' command
-if do_2to3:
-    class my_build_scripts(build_scripts):
-        def copy_file(self, src, dest):
-            dest, copied = build_scripts.copy_file(self, src, dest)
-            # 2to3
-            if not self.dry_run and copied:
-                refactor_filenames([dest])
-            return dest, copied
-
-else:
-    my_build_scripts = build_scripts
 
 # 'build' command
 class my_build(build):
@@ -1389,8 +1316,6 @@ class my_build_ext(build_ext):
             swig_cmd = [swig, "-python", "-c++"]
             swig_cmd.append("-dnone",) # we never use the .doc files.
             swig_cmd.extend(self.current_extension.extra_swig_commands)
-            if not is_py3k:
-                swig_cmd.append("-DSWIG_PY2K")
             if distutils.util.get_platform() == 'win-amd64':
                 swig_cmd.append("-DSWIG_PY64BIT")
             else:
@@ -1554,9 +1479,6 @@ class my_install_data(install_data):
 
     def copy_file(self, src, dest):
         dest, copied = install_data.copy_file(self, src, dest)
-        # 2to3
-        if not self.dry_run and copied:
-            refactor_filenames([dest])
         return dest, copied
 
 ################################################################
@@ -2511,8 +2433,8 @@ cmdclass = { 'install': my_install,
              'build': my_build,
              'build_ext': my_build_ext,
              'install_data': my_install_data,
-             'build_py' : my_build_py,
-             'build_scripts' : my_build_scripts,
+             'build_py' : build_py,
+             'build_scripts' : build_scripts,
            }
 
 dist = setup(name="pywin32",
