@@ -20,11 +20,7 @@ Visual Studio used - some VS versions are not compatible with some SDK
 versions.  Below are the Windows SDK versions required (and the URL - although
 these are subject to being changed by MS at any time:)
 
-Python 2.4->2.5:
-  Microsoft Windows Software Development Kit Update for Windows Vista (version 6.0)
-  http://www.microsoft.com/downloads/en/details.aspx?FamilyID=4377f86d-c913-4b5c-b87e-ef72e5b4e065
-
-Python 2.6+:
+Python 2.7:
   Microsoft Windows SDK for Windows 7 and .NET Framework 4 (version 7.1)
   http://www.microsoft.com/downloads/en/details.aspx?FamilyID=6b6c21d2-2006-4afa-9702-529fa782d63b
 
@@ -52,12 +48,7 @@ or to build and install a debug version:
 
 To build 64bit versions of this:
 
-* py2.5 and earlier - sorry, I've given up in disgust.  Using VS2003 with
-  the Vista SDK is just too painful to make work, and VS2005 is not used for
-  any released versions of Python. See revision 1.69 of this file for the
-  last version that attempted to support and document this process.
-
-*  2.6 and later: On a 64bit OS, just build as you would on a 32bit platform.
+*  2.7 and later: On a 64bit OS, just build as you would on a 32bit platform.
    On a 32bit platform (ie, to cross-compile), you must use VS2008 to
    cross-compile Python itself. Note that by default, the 64bit tools are not
    installed with VS2008, so you may need to adjust your VS2008 setup. Then
@@ -102,7 +93,6 @@ from distutils.command.build_scripts import build_scripts
 from distutils.command.bdist_msi import bdist_msi
 
 from distutils.msvccompiler import get_build_version
-from distutils import log
 
 # some modules need a static CRT to avoid problems caused by them having a
 # manifest.
@@ -121,7 +111,7 @@ if not "." in build_id_patch:
     build_id_patch = build_id_patch + ".0"
 pywin32_version="%d.%d.%s" % (sys.version_info[0], sys.version_info[1],
                               build_id_patch)
-print("Building pywin32", pywin32_version)
+log.debug("Building pywin32 %s", pywin32_version)
 
 try:
     this_file = __file__
@@ -143,14 +133,12 @@ def find_platform_sdk_dir():
     # Finding the Platform SDK install dir is a treat. There can be some
     # dead ends so we only consider the job done if we find the "windows.h"
     # landmark.
-    DEBUG = False # can't use log.debug - not setup yet
     landmark = "include\\windows.h"
     # 1. The use might have their current environment setup for the
     #    SDK, in which case the "MSSdk" env var is set.
     sdkdir = os.environ.get("MSSdk")
     if sdkdir:
-        if DEBUG:
-            print("PSDK: try %%MSSdk%%: '%s'" % sdkdir)
+        log.debug("PSDK: try %%MSSdk%%: '%s'", sdkdir)
         if os.path.isfile(os.path.join(sdkdir, landmark)):
             return sdkdir
     # 2. The "Install Dir" value in the
@@ -164,9 +152,8 @@ def find_platform_sdk_dir():
     except EnvironmentError:
         pass
     else:
-        if DEBUG:
-            print(r"PSDK: try 'HKLM\Software\Microsoft\MicrosoftSDK"\
-                   "\Directories\Install Dir': '%s'" % sdkdir)
+        log.debug(r"PSDK: try 'HKLM\Software\Microsoft\MicrosoftSDK"\
+               "\Directories\Install Dir': '%s'" % sdkdir)
         if os.path.isfile(os.path.join(sdkdir, landmark)):
             return sdkdir
     # 3. Each installed SDK (not just the platform SDK) seems to have GUID
@@ -185,10 +172,9 @@ def find_platform_sdk_dir():
             except EnvironmentError:
                 pass
             else:
-                if DEBUG:
-                    print(r"PSDK: try 'HKLM\Software\Microsoft\MicrosoftSDK"\
-                           "\InstallSDKs\%s\Install Dir': '%s'"\
-                           % (guid, sdkdir))
+                log.debug(r"PSDK: try 'HKLM\Software\Microsoft\MicrosoftSDK"\
+                       "\InstallSDKs\%s\Install Dir': '%s'"\
+                       % (guid, sdkdir))
                 if os.path.isfile(os.path.join(sdkdir, landmark)):
                     return sdkdir
             i += 1
@@ -204,9 +190,8 @@ def find_platform_sdk_dir():
         except EnvironmentError:
             pass
         else:
-            if DEBUG:
-                print(r"PSDK: try 'HKLM\Software\Microsoft\MicrosoftSDKs"\
-                       "\Windows\CurrentInstallFolder': '%s'" % sdkdir)
+            log.debug(r"PSDK: try 'HKLM\Software\Microsoft\MicrosoftSDKs"\
+                   "\Windows\CurrentInstallFolder': '%s'" % sdkdir)
             if os.path.isfile(os.path.join(sdkdir, landmark)):
                 return sdkdir
     
@@ -238,8 +223,7 @@ def find_platform_sdk_dir():
     
     if possible_sdkdirs:
         _, sdkdir = max(possible_sdkdirs)
-        if DEBUG:
-            print(r"Found highest complete SDK installed at", sdkdir)
+        log.debug(r"Found highest complete SDK installed at", sdkdir)
         return sdkdir
 
     # 5. Failing this just try a few well-known default install locations.
@@ -249,8 +233,7 @@ def find_platform_sdk_dir():
         os.path.join(progfiles, "Microsoft SDK"),
     ]
     for sdkdir in defaultlocs:
-        if DEBUG:
-            print("PSDK: try default location: '%s'" % sdkdir)
+        log.debug("PSDK: try default location: '%s'" % sdkdir)
         if os.path.isfile(os.path.join(sdkdir, landmark)):
             return sdkdir
     
@@ -334,7 +317,7 @@ if sys.version_info > (2,6):
 
 
 sdk_dir = find_platform_sdk_dir()
-print("Using platform SDK from", sdk_dir)
+log.info("Using platform SDK from %s", sdk_dir)
 
 class WinExt (Extension):
     # Base class for all win32 extensions, with some predefined
@@ -648,7 +631,7 @@ class my_build(build):
             f.write("%s\n" % build_id)
             f.close()
         except EnvironmentError as why:
-            print("Failed to open '%s': %s" % (ver_fname, why))
+            log.error("Failed to open '%s': %s" % (ver_fname, why))
 
 class my_build_ext(build_ext):
 
@@ -958,7 +941,7 @@ class my_build_ext(build_ext):
             if why is not None:
                 self.excluded_extensions.append((ext, why))
                 assert why, "please give a reason, or None"
-                print("Skipping %s: %s" % (ext.name, why))
+                log.warn("Skipping %s: %s" % (ext.name, why))
                 continue
 
             try:
@@ -1032,7 +1015,7 @@ class my_build_ext(build_ext):
                     self.copy_file(
                             os.path.join(mfc_dir, f), target_dir)
         except (EnvironmentError, RuntimeError) as exc:
-            print("Can't find an installed VC for the MFC DLLs:", exc)
+            log.exception("Can't find an installed VC for the MFC DLLs")
 
 
     def build_exefile(self, ext):
@@ -1156,7 +1139,7 @@ class my_build_ext(build_ext):
         if why is not None:
             self.excluded_extensions.append((ext, why))
             assert why, "please give a reason, or None"
-            print("Skipping %s: %s" % (ext.name, why))
+            log.warn("Skipping %s: %s" % (ext.name, why))
             return
         self.current_extension = ext
 
@@ -1381,7 +1364,7 @@ class my_install(install):
             filename = os.path.join(self.prefix, "Scripts", "pywin32_postinstall.py")
             if not os.path.isfile(filename):
                 raise RuntimeError("Can't find '%s'" % (filename,))
-            print("Executing post install script...")
+            log.info("Executing post install script...")
             # What executable to use?  This one I guess.
             os.spawnl(os.P_NOWAIT, sys.executable,
                       sys.executable, filename,
@@ -1474,7 +1457,7 @@ class my_install_data(install_data):
         if self.install_dir is None:
             installobj = self.distribution.get_command_obj('install')
             self.install_dir = installobj.install_lib
-        print('Installing data files to %s' % self.install_dir)
+        log.info('Installing data files to %s' % self.install_dir)
         install_data.finalize_options(self)
 
     def copy_file(self, src, dest):
