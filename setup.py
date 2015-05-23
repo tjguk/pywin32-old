@@ -140,7 +140,7 @@ def sdk_is_useful(dirpath):
     function to get a useful result without needing to check first whether
     it exists!
     """
-    landmarks = {"include\\windows.h"}
+    landmarks = {"include/windows.h"}
     log.debug("Checking SDK %s for usefulness", dirpath)
     return all(os.path.exists(os.path.join(dirpath, landmark)) for landmark in landmarks)
 
@@ -150,6 +150,14 @@ def most_useful_sdk(dirpaths):
     """
     return max(dirpaths, os.path.dirname)
 
+def sdk_from_registry_key(hkey, value):
+    try:
+        sdkdir, _ = _winreg.QueryValueEx(hkey, value)
+    except EnvironmentError:
+        return None
+    else:
+        return sdkdir
+    
 def sdk_from_registry_value(subkey, value, hive=_winreg.HKEY_LOCAL_MACHINE):
     """Look for a possible sdk directory from a registry value. Either
     of the subkey and the value might not exist, and
@@ -170,25 +178,25 @@ def sdk_from_registry_keys(subkey, value, hive=_winreg.HKEY_LOCAL_MACHINE):
     """
     log.debug("Check for SDK in %s:%s", subkey, value)
     try:
-        key = _winreg.OpenKey(hive, subkey)
+        hkey = _winreg.OpenKey(hive, subkey)
     except EnvironmentError:
         pass
     else:
         i = 0
         while True:
             try:
-                sdk_version = _winreg.EnumKey(key, i)
+                sdk_version = _winreg.EnumKey(hkey, i)
             except EnvironmentError:
                 break
-            sdk_version_key = _winreg.OpenKey(key, sdk_version)
+            sdk_version_key = _winreg.OpenKey(hkey, sdk_version)
             try:
-                sdkdir, _ = _winreg.QueryValueEx(sdk_version_key, "InstallationFolder")
-                if os.path.isfile(os.path.join(sdkdir, landmark)):
-                    possible_sdkdirs.append((sdk_version, sdkdir))
+                sdkdir, _ = _winreg.QueryValueEx(sdk_version_key, value)
             except EnvironmentError:
                 pass
-            i += 1
+            else:
+                yield sdkdir
 
+            i += 1
 
 # We need to know the platform SDK dir before we can list the extensions.
 def find_platform_sdk_dir():
@@ -225,26 +233,9 @@ def find_platform_sdk_dir():
     #    subkey of HKLM\Software\Microsoft\MicrosoftSDK\InstalledSDKs and
     #    it *looks* like the latest installed Platform SDK will be the
     #    only one with an "Install Dir" sub-value.
-    try:
-        key = _winreg.OpenKey(_winreg.HKEY_LOCAL_MACHINE,
-                              r"Software\Microsoft\MicrosoftSDK\InstalledSDKs")
-        i = 0
-        while True:
-            guid = _winreg.EnumKey(key, i)
-            guidkey = _winreg.OpenKey(key, guid)
-            try:
-                sdkdir, ignore = _winreg.QueryValueEx(guidkey, "Install Dir")
-            except EnvironmentError:
-                pass
-            else:
-                log.debug(r"PSDK: try 'HKLM\Software\Microsoft\MicrosoftSDK"\
-                       "\InstallSDKs\%s\Install Dir': '%s'"\
-                       % (guid, sdkdir))
-                if os.path.isfile(os.path.join(sdkdir, landmark)):
-                    return sdkdir
-            i += 1
-    except EnvironmentError:
-        pass
+    for sdkdir in sdk_from_registry_keys(r"Software\Microsoft\MicrosoftSDK\InstalledSDKs", "InstallDir"):
+        if sdkdir and sdk_is_useful(sdkdir):
+            sdk.add(sdkdir)
 
     sdkdir = sdk_from_registry_value(r"Software\Microsoft\Microsoft SDKs\Windows", "CurrentInstallFolder")
     if sdkdir and sdk_is_useful(sdkdir):
