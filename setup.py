@@ -235,7 +235,7 @@ def find_platform_sdk_dir():
     #    only one with an "Install Dir" sub-value.
     for sdkdir in sdk_from_registry_keys(r"Software\Microsoft\MicrosoftSDK\InstalledSDKs", "InstallDir"):
         if sdkdir and sdk_is_useful(sdkdir):
-            sdk.add(sdkdir)
+            sdks.add(sdkdir)
 
     sdkdir = sdk_from_registry_value(r"Software\Microsoft\Microsoft SDKs\Windows", "CurrentInstallFolder")
     if sdkdir and sdk_is_useful(sdkdir):
@@ -245,7 +245,6 @@ def find_platform_sdk_dir():
     # NB Try to find the most recent one which has a complete install; this
     # involves selecting them all and then selecting the last based on the
     # version number
-    possible_sdkdirs = []
     try:
         key = _winreg.OpenKey(_winreg.HKEY_LOCAL_MACHINE,
                               r"Software\Microsoft\Microsoft SDKs\Windows")
@@ -261,14 +260,14 @@ def find_platform_sdk_dir():
             sdk_version_key = _winreg.OpenKey(key, sdk_version)
             try:
                 sdkdir, _ = _winreg.QueryValueEx(sdk_version_key, "InstallationFolder")
-                if os.path.isfile(os.path.join(sdkdir, landmark)):
-                    possible_sdkdirs.append((sdk_version, sdkdir))
+                if sdk_is_useful(sdkdir):
+                    sdks.add(sdkdir)
             except EnvironmentError:
                 pass
             i += 1
     
-    if possible_sdkdirs:
-        _, sdkdir = max(possible_sdkdirs)
+    if sdks:
+        sdkdir = max(sdks)
         log.debug(r"Found highest complete SDK installed at %s", sdkdir)
         return sdkdir
 
