@@ -148,7 +148,10 @@ def most_useful_sdk(dirpaths):
     """From a set of SDK directories, all of which have been deemed useful,
     select one to use.
     """
-    return max(dirpaths, os.path.dirname)
+    log.debug("most_useful_sdk: dirpaths=%r", dirpaths)
+    max_dirpath = max(dirpaths, os.path.basename)
+    log.debug("max_dirpath: %r", max_dirpath)
+    return max_dirpath
 
 def sdk_from_registry_key(hkey, value):
     try:
@@ -156,7 +159,7 @@ def sdk_from_registry_key(hkey, value):
     except EnvironmentError:
         return None
     else:
-        return sdkdir
+        return os.path.abspath(sdkdir).rstrip("\\")
     
 def sdk_from_registry_value(subkey, value, hive=_winreg.HKEY_LOCAL_MACHINE):
     """Look for a possible sdk directory from a registry value. Either
@@ -170,7 +173,7 @@ def sdk_from_registry_value(subkey, value, hive=_winreg.HKEY_LOCAL_MACHINE):
     except EnvironmentError:
         return None
     else:
-        return sdkdir
+        return os.path.abspath(sdkdir).rstrip("\\")
 
 def sdk_from_registry_keys(subkey, value, hive=_winreg.HKEY_LOCAL_MACHINE):
     """Look for possible sdk directories from a defined value in the 
@@ -194,7 +197,7 @@ def sdk_from_registry_keys(subkey, value, hive=_winreg.HKEY_LOCAL_MACHINE):
             except EnvironmentError:
                 pass
             else:
-                yield sdkdir
+                yield os.path.abspath(sdkdir).rstrip("\\")
 
             i += 1
 
@@ -245,29 +248,13 @@ def find_platform_sdk_dir():
     # NB Try to find the most recent one which has a complete install; this
     # involves selecting them all and then selecting the last based on the
     # version number
-    try:
-        key = _winreg.OpenKey(_winreg.HKEY_LOCAL_MACHINE,
-                              r"Software\Microsoft\Microsoft SDKs\Windows")
-    except EnvironmentError:
-        pass
-    else:
-        i = 0
-        while True:
-            try:
-                sdk_version = _winreg.EnumKey(key, i)
-            except EnvironmentError:
-                break
-            sdk_version_key = _winreg.OpenKey(key, sdk_version)
-            try:
-                sdkdir, _ = _winreg.QueryValueEx(sdk_version_key, "InstallationFolder")
-                if sdk_is_useful(sdkdir):
-                    sdks.add(sdkdir)
-            except EnvironmentError:
-                pass
-            i += 1
+    for sdkdir in sdk_from_registry_keys(r"Software\Microsoft\Microsoft SDKs\Windows", "InstallationFolder"):
+        if sdkdir and sdk_is_useful(sdkdir):
+            sdks.add(sdkdir)
     
+    log.debug("Found SDKs at: %s", "\n".join(sorted(sdks)))
     if sdks:
-        sdkdir = max(sdks)
+        sdkdir = most_useful_sdk(sdks)
         log.debug(r"Found highest complete SDK installed at %s", sdkdir)
         return sdkdir
 
