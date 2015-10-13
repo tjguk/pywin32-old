@@ -146,12 +146,11 @@ def sdk_is_useful(dirpath):
 
 def most_useful_sdk(dirpaths):
     """From a set of SDK directories, all of which have been deemed useful,
-    select one to use.
+    select one to use. It's assumed that the final segment of the directory
+    name represents a version (6.0, 7.1A etc.) and that sorting this
+    lexicographically will give a meaningful "latest" one.
     """
-    log.debug("most_useful_sdk: dirpaths=%r", dirpaths)
-    max_dirpath = max(dirpaths, os.path.basename)
-    log.debug("max_dirpath: %r", max_dirpath)
-    return max_dirpath
+    return max(dirpaths, key=os.path.basename)
 
 def sdk_from_registry_key(hkey, value):
     try:
