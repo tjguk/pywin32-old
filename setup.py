@@ -129,178 +129,139 @@ if os.path.dirname(this_file):
 # dll_base_address later in this file...
 dll_base_address = 0x1e200000
 
-class SDK(object):
-    """Base class to allow searching for various SDKs, eg the main
-    Platform SDK or the DirectX SDK.
+def sdk_is_useful(dirpath):
+    """SDKs come in all levels of completeness: it's quite usual to
+    have an SDK directory with only a few files, or only binaries or
+    only a particular subset of the SDKs we'd need. We look for a few
+    landmark files which would make the SDK usable by us.
+    
+    NB since the os.path.exists check will fail just as well if the entire
+    directory doesn't exist, we can happily pass any directory to this
+    function to get a useful result without needing to check first whether
+    it exists!
     """
-    
     landmarks = {"include/windows.h"}
-    
-    def __init__(self, name):
-        self.name = name
-        self._dirpath = None
-    
-    def _get_dirpath(self):
-        if self._dirpath is None:
-            self._dirpath = self._find_sdk()
-        return self._dirpath
-    dirpath = property(_get_dirpath)
+    log.debug("Checking SDK %s for usefulness", dirpath)
+    return all(os.path.exists(os.path.join(dirpath, landmark)) for landmark in landmarks)
 
-    def is_useful(self, candidate_dirpath):
-        """SDKs come in all levels of completeness: it's quite usual to
-        have an SDK directory with only a few files, or only binaries or
-        only a particular subset of the SDKs we'd need. We look for a few
-        landmark files which would make the SDK usable by us.
+def most_useful_sdk(dirpaths):
+    """From a set of SDK directories, all of which have been deemed useful,
+    select one to use. It's assumed that the final segment of the directory
+    name represents a version (6.0, 7.1A etc.) and that sorting this
+    lexicographically will give a meaningful "latest" one.
+    """
+    return max(dirpaths, key=os.path.basename)
+
+def sdk_from_registry_key(hkey, value):
+    try:
+        sdkdir, _ = _winreg.QueryValueEx(hkey, value)
+    except EnvironmentError:
+        return None
+    else:
+        return os.path.abspath(sdkdir).rstrip("\\")
+    
+def sdk_from_registry_value(subkey, value, hive=_winreg.HKEY_LOCAL_MACHINE):
+    """Look for a possible sdk directory from a registry value. Either
+    of the subkey and the value might not exist, and
+    the resulting SDK dir might not be useful.
+    """
+    log.debug("Check for SDK in %s:%s", subkey, value)
+    try:
+        hkey = _winreg.OpenKey(hive, subkey)
+    except EnvironmentError:
+        return None
+    else:
+        return sdk_from_registry_key(hkey, value)
+
+def sdk_from_registry_keys(subkey, value, hive=_winreg.HKEY_LOCAL_MACHINE):
+    """Look for possible sdk directories from a defined value in the 
+    keys below a registry key. Any of the keys or values might not exist.
+    """
+    log.debug("Check for SDK in %s:%s", subkey, value)
+    try:
+        hkey = _winreg.OpenKey(hive, subkey)
+    except EnvironmentError:
+        pass
+    else:
+        i = 0
+        while True:
+            try:
+                sdk_version = _winreg.EnumKey(hkey, i)
+            except EnvironmentError:
+                break
+            sdk_version_key = _winreg.OpenKey(hkey, sdk_version)
+            yield sdk_from_registry_key(sdk_version_key, value)
+
+            i += 1
+
+# We need to know the platform SDK dir before we can list the extensions.
+def find_platform_sdk_dir():
+    # Finding the Platform SDK install dir is a treat. There can be some
+    # dead ends so we only consider the job done if we find the "windows.h"
+    # landmark.
+    # 1. The use might have their current environment setup for the
+    #    SDK, in which case the "MSSdk" env var is set.
+    sdks = set()    
+    #
+    # There may be several SDKs on the machine which satisfy our needs.
+    # Use a range of techniques to gather them and the apply some heuristic
+    # to decide which to select. (Probably: the highest-numbered one)
+    #
+    
+    #
+    # Special-case the MSSDK env var: if it is set to a useful SDK, just
+    # use it regardless of other possibilities.
+    #
+    sdkdir = os.environ.get("MSSdk")
+    if sdkdir and sdk_is_useful(sdkdir):
+        return sdkdir
         
-        NB since the os.path.exists check will fail just as well if the entire
-        directory doesn't exist, we can happily pass any directory to this
-        function to get a useful result without needing to check first whether
-        it exists!
-        """
-        log.debug("Checking SDK %s for usefulness", candidate_dirpath)
-        return all(os.path.exists(os.path.join(candidate_dirpath, landmark)) for landmark in self.landmarks)
+    # 2. The "Install Dir" value in the
+    #    HKLM\Software\Microsoft\MicrosoftSDK\Directories registry key
+    #    sometimes points to the right thing. However, after upgrading to
+    #    the "Platform SDK for Windows Server 2003 SP1" this is dead end.
+    #
+    sdkdir = sdk_from_registry_value(r"Software\Microsoft\MicrosoftSDK\Directories", "Install Dir")
+    if sdkdir and sdk_is_useful(sdkdir):
+        sdks.add(sdkdir)
     
-    def most_useful_sdk(self, dirpaths):
-        """From a set of SDK directories, all of which have been deemed useful,
-        select one to use. It's assumed that the final segment of the directory
-        name represents a version (6.0, 7.1A etc.) and that sorting this
-        lexicographically will give a meaningful "latest" one.
-        """
-        return max(dirpaths, key=os.path.basename)
-    
-    def sdk_from_registry_key(self, hkey, value):
-        try:
-            sdkdir, _ = _winreg.QueryValueEx(hkey, value)
-        except EnvironmentError:
-            return None
-        else:
-            return os.path.abspath(sdkdir).rstrip("\\")
-        
-    def sdk_from_registry_value(self, subkey, value, hive=_winreg.HKEY_LOCAL_MACHINE):
-        """Look for a possible sdk directory from a registry value. Either
-        of the subkey and the value might not exist, and
-        the resulting SDK dir might not be useful.
-        """
-        log.debug("Check for SDK in %s:%s", subkey, value)
-        try:
-            hkey = _winreg.OpenKey(hive, subkey)
-        except EnvironmentError:
-            return None
-        else:
-            return self.sdk_from_registry_key(hkey, value)
-
-    def sdk_from_registry_keys(self, subkey, value, hive=_winreg.HKEY_LOCAL_MACHINE):
-        """Look for possible sdk directories from a defined value in the 
-        keys below a registry key. Any of the keys or values might not exist.
-        """
-        log.debug("Check for SDK in %s:%s", subkey, value)
-        try:
-            hkey = _winreg.OpenKey(hive, subkey)
-        except EnvironmentError:
-            pass
-        else:
-            i = 0
-            while True:
-                try:
-                    sdk_version = _winreg.EnumKey(hkey, i)
-                except EnvironmentError:
-                    break
-                sdk_version_key = _winreg.OpenKey(hkey, sdk_version)
-                yield self.sdk_from_registry_key(sdk_version_key, value)
-
-                i += 1
-
-class PlatformSDK(SDK):
-    
-    def _find_sdk(self):
-        # Finding the Platform SDK install dir is a treat. There can be some
-        # dead ends so we only consider the job done if we find the "windows.h"
-        # landmark.
-        # 1. The use might have their current environment setup for the
-        #    SDK, in which case the "MSSdk" env var is set.
-        sdks = set()    
-        #
-        # There may be several SDKs on the machine which satisfy our needs.
-        # Use a range of techniques to gather them and the apply some heuristic
-        # to decide which to select. (Probably: the highest-numbered one)
-        #
-        
-        #
-        # Special-case the MSSDK env var: if it is set to a useful SDK, just
-        # use it regardless of other possibilities.
-        #
-        sdkdir = os.environ.get("MSSdk")
-        if sdkdir and sdk_is_useful(sdkdir):
-            return sdkdir
-            
-        #
-        # 2. The "Install Dir" value in the
-        #    HKLM\Software\Microsoft\MicrosoftSDK\Directories registry key
-        #    sometimes points to the right thing. However, after upgrading to
-        #    the "Platform SDK for Windows Server 2003 SP1" this is dead end.
-        #
-        sdkdir = sdk_from_registry_value(r"Software\Microsoft\MicrosoftSDK\Directories", "Install Dir")
+    # 3. Each installed SDK (not just the platform SDK) seems to have GUID
+    #    subkey of HKLM\Software\Microsoft\MicrosoftSDK\InstalledSDKs and
+    #    it *looks* like the latest installed Platform SDK will be the
+    #    only one with an "Install Dir" sub-value.
+    for sdkdir in sdk_from_registry_keys(r"Software\Microsoft\MicrosoftSDK\InstalledSDKs", "InstallDir"):
         if sdkdir and sdk_is_useful(sdkdir):
             sdks.add(sdkdir)
-        
-        #
-        # 3. Each installed SDK (not just the platform SDK) seems to have GUID
-        #    subkey of HKLM\Software\Microsoft\MicrosoftSDK\InstalledSDKs and
-        #    it *looks* like the latest installed Platform SDK will be the
-        #    only one with an "Install Dir" sub-value.
-        for sdkdir in sdk_from_registry_keys(r"Software\Microsoft\MicrosoftSDK\InstalledSDKs", "InstallDir"):
-            if sdkdir and sdk_is_useful(sdkdir):
-                sdks.add(sdkdir)
 
-        sdkdir = sdk_from_registry_value(r"Software\Microsoft\Microsoft SDKs\Windows", "CurrentInstallFolder")
+    sdkdir = sdk_from_registry_value(r"Software\Microsoft\Microsoft SDKs\Windows", "CurrentInstallFolder")
+    if sdkdir and sdk_is_useful(sdkdir):
+        sdks.add(sdkdir)
+    
+    # 4a. Vista's SDK when the CurrentInstallFolder isn't a complete installation
+    # NB Try to find the most recent one which has a complete install; this
+    # involves selecting them all and then selecting the last based on the
+    # version number
+    for sdkdir in sdk_from_registry_keys(r"Software\Microsoft\Microsoft SDKs\Windows", "InstallationFolder"):
         if sdkdir and sdk_is_useful(sdkdir):
             sdks.add(sdkdir)
-        
-        #
-        # 4a. Vista's SDK when the CurrentInstallFolder isn't a complete installation
-        # NB Try to find the most recent one which has a complete install; this
-        # involves selecting them all and then selecting the last based on the
-        # version number
-        #
-        for sdkdir in sdk_from_registry_keys(r"Software\Microsoft\Microsoft SDKs\Windows", "InstallationFolder"):
-            if sdkdir and sdk_is_useful(sdkdir):
-                sdks.add(sdkdir)
-        
-        log.debug("Found SDKs at: %s", "\n".join(sorted(sdks)))
-        if sdks:
-            sdkdir = most_useful_sdk(sdks)
-            return sdkdir
-
-        #
-        # 5. Failing this just try a few well-known default install locations.
-        #
-        progfiles = os.environ.get("ProgramFiles", r"C:\Program Files")
-        defaultlocs = [
-            os.path.join(progfiles, "Microsoft Platform SDK"),
-            os.path.join(progfiles, "Microsoft SDK"),
-        ]
-        for sdkdir in defaultlocs:
-            log.debug("PSDK: try default location: '%s'" % sdkdir)
-            if sdk_is_useful(sdkdir):
-                return sdkdir
-
-        raise RuntimeError("No SDK to be found")
-
-class ExchangeSDK(SDK):
     
-    landmarks = {"include/edkmdb.h"}
+    log.debug("Found SDKs at: %s", "\n".join(sorted(sdks)))
+    if sdks:
+        sdkdir = most_useful_sdk(sdks)
+        return sdkdir
 
-    def _find_sdk(self):
-        
-
-sdks = [
-    "platform" : PlatformSDK(),
-    "exchange" : ExchangeSDK(),
-]
-
-sdk_dir = PlatformSDK().dirpath
-log.info("Using platform SDK from %s", sdk_dir)
-
+    # 5. Failing this just try a few well-known default install locations.
+    progfiles = os.environ.get("ProgramFiles", r"C:\Program Files")
+    defaultlocs = [
+        os.path.join(progfiles, "Microsoft Platform SDK"),
+        os.path.join(progfiles, "Microsoft SDK"),
+    ]
+    for sdkdir in defaultlocs:
+        log.debug("PSDK: try default location: '%s'" % sdkdir)
+        if sdk_is_useful(sdkdir):
+            return sdkdir
+    
+    raise RuntimeError("No SDK to be found")
 
 # Some nasty hacks to prevent most of our extensions using a manifest, as
 # the manifest - even without a reference to the CRT assembly - is enough
@@ -378,8 +339,8 @@ if sys.version_info > (2,6):
     MSVCCompiler.link = monkeypatched_link
 
 
-def extra_sdk_is_installed(name, search_from=sdk_dir):
-    
+sdk_dir = find_platform_sdk_dir()
+log.info("Using platform SDK from %s", sdk_dir)
 
 class WinExt (Extension):
     # Base class for all win32 extensions, with some predefined
@@ -1599,7 +1560,7 @@ for info in (
         ("win2kras", "rasapi32", None, 0x0500, "win32/src/win2krasmodule.cpp"),
         ("win32cred", "AdvAPI32 credui", True, 0x0501, 'win32/src/win32credmodule.cpp'),
         ("win32crypt", "Crypt32 Advapi32", True, 0x0500, """
-            win32/src/win32crypt/win32cryptmodule.cpp    
+            win32/src/win32crypt/win32cryptmodule.cpp	
             win32/src/win32crypt/win32crypt_structs.cpp
             win32/src/win32crypt/PyCERTSTORE.cpp
             win32/src/win32crypt/PyCERT_CONTEXT.cpp
@@ -1970,7 +1931,7 @@ com_extensions += [
                         %(mapi)s/PyIMsgStore.i          %(mapi)s/PyIMsgStore.cpp
                         %(mapi)s/PyIProfAdmin.i         %(mapi)s/PyIProfAdmin.cpp
                         %(mapi)s/PyIProfSect.i          %(mapi)s/PyIProfSect.cpp
-                        %(mapi)s/PyIConverterSession.i    %(mapi)s/PyIConverterSession.cpp
+                        %(mapi)s/PyIConverterSession.i	%(mapi)s/PyIConverterSession.cpp
                         %(mapi)s/PyIMAPIAdviseSink.cpp
                         %(mapi)s/mapiutil.cpp
                         %(mapi)s/mapiguids.cpp
@@ -2343,7 +2304,7 @@ swig_interface_parents = {
     'PyIMsgStore':          'IMAPIProp',
     'PyIProfAdmin':         '',
     'PyIProfSect':          'IMAPIProp',
-    'PyIConverterSession':    '',
+	'PyIConverterSession':	'',
     # exchange and exchdapi
     'exchange':             None,
     'exchdapi':             None,
