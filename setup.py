@@ -248,7 +248,6 @@ def find_platform_sdk_dir():
     log.debug("Found SDKs at: %s", "\n".join(sorted(sdks)))
     if sdks:
         sdkdir = most_useful_sdk(sdks)
-        log.debug(r"Found highest complete SDK installed at %s", sdkdir)
         return sdkdir
 
     # 5. Failing this just try a few well-known default install locations.
@@ -259,11 +258,10 @@ def find_platform_sdk_dir():
     ]
     for sdkdir in defaultlocs:
         log.debug("PSDK: try default location: '%s'" % sdkdir)
-        if os.path.isfile(os.path.join(sdkdir, landmark)):
+        if sdk_is_useful(sdkdir):
             return sdkdir
     
     raise RuntimeError("No SDK to be found")
-
 
 # Some nasty hacks to prevent most of our extensions using a manifest, as
 # the manifest - even without a reference to the CRT assembly - is enough
@@ -1419,31 +1417,12 @@ class my_compiler(base_compiler):
     # though, as we can just specify the lowercase name in the module def.
     _cpp_extensions = base_compiler._cpp_extensions + [".CPP"]
     src_extensions = base_compiler.src_extensions + [".CPP"]
+    
+    def __init__(self, *args, **kwargs):
+        base_compiler.__init__(self, *args, **kwargs)
+        self.can_apply_verstamp = True
 
-    def link(self,
-              target_desc,
-              objects,
-              output_filename,
-              output_dir=None,
-              libraries=None,
-              library_dirs=None,
-              runtime_library_dirs=None,
-              export_symbols=None,
-              debug=0, *args, **kw):
-        msvccompiler.MSVCCompiler.link( self,
-                                        target_desc,
-                                        objects,
-                                        output_filename,
-                                        output_dir,
-                                        libraries,
-                                        library_dirs,
-                                        runtime_library_dirs,
-                                        export_symbols,
-                                        debug, *args, **kw)
-        # Here seems a good place to stamp the version of the built
-        # target.  Do this externally to avoid suddenly dragging in the
-        # modules needed by this process, and which we will soon try and
-        # update.
+    def apply_verstamp(self, output_filename):
         try:
             import optparse # win32verstamp will not work without this!
             ok = True
@@ -1468,8 +1447,38 @@ class my_compiler(base_compiler):
             except DistutilsExecError as msg:
                 log.info("VersionStamp failed: %s", msg)
                 ok = False
+        
         if not ok:
-            log.info('Unable to import verstamp, no version info will be added')
+            log.warn('Unable to import verstamp, no version info will be added')
+            self.can_apply_verstamp = False
+        
+    def link(self,
+              target_desc,
+              objects,
+              output_filename,
+              output_dir=None,
+              libraries=None,
+              library_dirs=None,
+              runtime_library_dirs=None,
+              export_symbols=None,
+              debug=0, *args, **kw):
+        msvccompiler.MSVCCompiler.link( self,
+                                        target_desc,
+                                        objects,
+                                        output_filename,
+                                        output_dir,
+                                        libraries,
+                                        library_dirs,
+                                        runtime_library_dirs,
+                                        export_symbols,
+                                        debug, *args, **kw)
+        
+        # Here seems a good place to stamp the version of the built
+        # target.  Do this externally to avoid suddenly dragging in the
+        # modules needed by this process, and which we will soon try and
+        # update.
+        if self.can_apply_verstamp:
+            self.apply_verstamp(output_filename)
 
 
 ################################################################
