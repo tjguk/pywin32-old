@@ -168,11 +168,10 @@ def sdk_from_registry_value(subkey, value, hive=_winreg.HKEY_LOCAL_MACHINE):
     log.debug("Check for SDK in %s:%s", subkey, value)
     try:
         hkey = _winreg.OpenKey(hive, subkey)
-        sdkdir, _ = _winreg.QueryValueEx(hkey, value)
     except EnvironmentError:
         return None
     else:
-        return os.path.abspath(sdkdir).rstrip("\\")
+        return sdk_from_registry_key(hkey, value)
 
 def sdk_from_registry_keys(subkey, value, hive=_winreg.HKEY_LOCAL_MACHINE):
     """Look for possible sdk directories from a defined value in the 
@@ -191,12 +190,7 @@ def sdk_from_registry_keys(subkey, value, hive=_winreg.HKEY_LOCAL_MACHINE):
             except EnvironmentError:
                 break
             sdk_version_key = _winreg.OpenKey(hkey, sdk_version)
-            try:
-                sdkdir, _ = _winreg.QueryValueEx(sdk_version_key, value)
-            except EnvironmentError:
-                pass
-            else:
-                yield os.path.abspath(sdkdir).rstrip("\\")
+            yield sdk_from_registry_key(sdk_version_key, value)
 
             i += 1
 
