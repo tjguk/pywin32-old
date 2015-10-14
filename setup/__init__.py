@@ -1,1 +1,1 @@
-import .monkeypatches
+from . import _monkeypatches

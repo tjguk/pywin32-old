@@ -1,3 +1,4 @@
+import os, sys
 # Some nasty hacks to prevent most of our extensions using a manifest, as
 # the manifest - even without a reference to the CRT assembly - is enough
 # to prevent the extension from loading.  For more details, see
@@ -5,6 +6,8 @@
 # languishing and will probably never be fixed for Python 2.6...
 from distutils.spawn import spawn
 from distutils.msvc9compiler import MSVCCompiler
+from distutils import ccompiler, msvccompiler
+
 MSVCCompiler._orig_spawn = MSVCCompiler.spawn
 MSVCCompiler._orig_link = MSVCCompiler.link
 
@@ -83,7 +86,6 @@ def my_new_compiler(**kw):
     return orig_new_compiler(**kw)
 
 # No way to cleanly wedge our compiler sub-class in.
-from distutils import ccompiler, msvccompiler
 orig_new_compiler = ccompiler.new_compiler
 ccompiler.new_compiler = my_new_compiler
 
@@ -102,6 +104,7 @@ class my_compiler(base_compiler):
         self.can_apply_verstamp = True
 
     def apply_verstamp(self, output_filename):
+        from . import config
         try:
             import optparse # win32verstamp will not work without this!
             ok = True
@@ -114,7 +117,7 @@ class my_compiler(base_compiler):
         if ok:
             args = [sys.executable]
             args.append(stamp_script)
-            args.append("--version=%s" % (pywin32_version,))
+            args.append("--version=%s" % (config.PYWIN32_VERSION,))
             args.append("--comments=http://pywin32.sourceforge.net")
             args.append("--original-filename=%s" % (os.path.basename(output_filename),))
             args.append("--product=PyWin32")

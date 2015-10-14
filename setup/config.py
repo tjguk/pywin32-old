@@ -14,6 +14,10 @@ else:
 
 from . import sdk
 
+BUILD_ID = "219.5" # may optionally include a ".{patchno}" suffix.
+PYWIN32_VERSION = "%d.%d.%s%s" % (sys.version_info[0], sys.version_info[1],
+                              BUILD_ID, ".0" if "." not in BUILD_ID else "")
+
 # some modules need a static CRT to avoid problems caused by them having a
 # manifest.
 #

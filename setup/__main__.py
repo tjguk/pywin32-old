@@ -1,5 +1,6 @@
 from __future__ import print_function
-build_id="219.5" # may optionally include a ".{patchno}" suffix.
+from . import config
+build_id = config.BUILD_ID
 # Putting buildno at the top prevents automatic __doc__ assignment, and
 # I *want* the build number at the top :)
 __doc__="""This is a distutils setup-script for the pywin32 extensions
@@ -76,12 +77,7 @@ from distutils.filelist import FileList
 from distutils.errors import DistutilsExecError
 #~ import distutils.util
 
-build_id_patch = build_id
-if not "." in build_id_patch:
-    build_id_patch = build_id_patch + ".0"
-pywin32_version="%d.%d.%s" % (sys.version_info[0], sys.version_info[1],
-                              build_id_patch)
-log.debug("Building pywin32 %s", pywin32_version)
+log.debug("Building pywin32 %s", config.PYWIN32_VERSION)
 
 try:
     this_file = __file__
@@ -536,15 +532,15 @@ com_extensions += [
                         %(mapi)s/mapiutil.cpp
                         %(mapi)s/mapiguids.cpp
                         """ % dirs).split()),
-    extensions.WinExt_win32com_mapi('exchange', libraries="mapi32",
-                         sources=("""
-                                  %(mapi)s/exchange.i         %(mapi)s/exchange.cpp
-                                  %(mapi)s/PyIExchangeManageStore.i %(mapi)s/PyIExchangeManageStore.cpp
-                                  """ % dirs).split()),
-    extensions.WinExt_win32com_mapi('exchdapi', libraries="mapi32",
-                         sources=("""
-                                  %(mapi)s/exchdapi.i         %(mapi)s/exchdapi.cpp
-                                  """ % dirs).split()),
+    #~ extensions.WinExt_win32com_mapi('exchange', libraries="mapi32",
+                         #~ sources=("""
+                                  #~ %(mapi)s/exchange.i         %(mapi)s/exchange.cpp
+                                  #~ %(mapi)s/PyIExchangeManageStore.i %(mapi)s/PyIExchangeManageStore.cpp
+                                  #~ """ % dirs).split()),
+    #~ extensions.WinExt_win32com_mapi('exchdapi', libraries="mapi32",
+                         #~ sources=("""
+                                  #~ %(mapi)s/exchdapi.i         %(mapi)s/exchdapi.cpp
+                                  #~ """ % dirs).split()),
     extensions.WinExt_win32com('shell', libraries='shell32', pch_header="shell_pch.h",
                     windows_h_version = 0x600,
                     sources=("""
@@ -867,13 +863,13 @@ other_extensions.append(
 )
 
 W32_exe_files = [
-    extensions.WinExt_win32("pythonservice",
+    extensions.WinExt_pythonservice_exe("pythonservice",
          sources=[os.path.join("win32", "src", s) for s in
                   "PythonService.cpp PythonService.rc".split()],
          unicode_mode = True,
          extra_link_args=["/SUBSYSTEM:CONSOLE"],
          libraries = "user32 advapi32 ole32 shell32"),
-    extensions.WinExt_pythonwin("Pythonwin",
+    extensions.WinExt_pythonwin_exe("Pythonwin",
         sources = [
             "Pythonwin/pythonwin.cpp",
             "Pythonwin/pythonwin.rc",

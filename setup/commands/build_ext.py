@@ -4,6 +4,7 @@ from distutils.dep_util import newer_group, newer
 import glob
 import re
 
+from .._compat import *
 from .. import config
 from .. import logging
 log = logging.logger(__package__)
@@ -310,20 +311,21 @@ class my_build_ext(distutils.command.build_ext.build_ext):
                 raise RuntimeError("Not a win32 package!")
             self.build_extension(ext)
 
-        for ext in W32_exe_files:
-            ext.finalize_options(self)
-            why = self._why_cant_build_extension(ext)
-            if why is not None:
-                self.excluded_extensions.append((ext, why))
-                assert why, "please give a reason, or None"
-                log.warn("Skipping %s: %s" % (ext.name, why))
-                continue
+        for ext in self.extensions:
+            if ext.is_win32_exe:
+                ext.finalize_options(self)
+                why = self._why_cant_build_extension(ext)
+                if why is not None:
+                    self.excluded_extensions.append((ext, why))
+                    assert why, "please give a reason, or None"
+                    log.warn("Skipping %s: %s" % (ext.name, why))
+                    continue
 
-            try:
-                self.package = ext.get_pywin32_dir()
-            except AttributeError:
-                raise RuntimeError("Not a win32 package!")
-            self.build_exefile(ext)
+                try:
+                    self.package = ext.get_pywin32_dir()
+                except AttributeError:
+                    raise RuntimeError("Not a win32 package!")
+                self.build_exefile(ext)
 
         # Not sure how to make this completely generic, and there is no
         # need at this stage.

@@ -1,12 +1,8 @@
 import os, sys
 
+from ._compat import *
 from . import logging
 log = logging.logger(__package__)
-
-try:
-    import _winreg
-except ImportError:
-    import winreg as _winreg
 
 def is_useful(dirpath, landmarks={"include/windows.h"}):
     """SDKs come in all levels of completeness: it's quite usual to

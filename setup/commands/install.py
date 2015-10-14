@@ -1,5 +1,6 @@
 import distutils.command.install
 
+from .._compat import *
 from .. import logging
 log = logging.logger(__package__)
 

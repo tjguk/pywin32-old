@@ -1,16 +1,16 @@
 import os, sys
 import distutils.core
 import string
-try:
-    import _winreg
-except ImportError:
-    import winreg as _winreg
 
+from ._compat import *
 from . import config
 from . import logging
 log = logging.logger(__package__)
 
 class WinExt(distutils.core.Extension):
+    
+    is_win32_exe = False
+    
     # Base class for all win32 extensions, with some predefined
     # library and include dirs, and predefined windows libraries.
     # Additionally a method to parse .def files into lists of exported
@@ -78,7 +78,6 @@ class WinExt(distutils.core.Extension):
                             export_symbols)
         self.depends = depends or [] # stash it here, as py22 doesn't have it.
         self.unicode_mode = unicode_mode
-        self.is_win32_exe = False
         self.want_static_crt = False
 
     def parse_def_file(self, path):
@@ -223,14 +222,15 @@ class WinExt_pythonwin(WinExt):
                             ['-D_AFXDLL', '-D_AFXEXT','-D_MBCS'])
 
         WinExt.__init__(self, name, **kw)
-        self.is_win32_exe = True
     def get_pywin32_dir(self):
         return "pythonwin"
 
+class WinExt_pythonwin_exe(WinExt_pythonwin):
+    is_win32_exe = True
+    
 class WinExt_win32(WinExt):
     def __init__ (self, name, **kw):
         WinExt.__init__(self, name, **kw)
-        self.is_win32_exe = True
     def get_pywin32_dir(self):
         return "win32"
 
@@ -238,6 +238,9 @@ class WinExt_win32_static_crt(WinExt_win32):
     def __init__(self, *args, **kwargs):
         WinExt_win32.__init__(self, *args, **kwargs)
         self.want_static_crt = True
+
+class WinExt_pythonservice_exe(WinExt_win32):
+    is_win32_exe = True
 
 class WinExt_ISAPI(WinExt):
     def get_pywin32_dir(self):
