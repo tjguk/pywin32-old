@@ -1,3 +1,4 @@
+import os, sys
 import distutils.command.install
 
 from .._compat import *
@@ -6,7 +7,7 @@ log = logging.logger(__package__)
 
 class my_install(distutils.command.install.install):
     def run(self):
-        install.run(self)
+        distutils.command.install.install.run(self)
         # Custom script we run at the end of installing - this is the same script
         # run by bdist_wininst
         # This child process won't be able to install the system DLLs until our

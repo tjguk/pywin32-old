@@ -1,6 +1,7 @@
 from __future__ import division
 from __future__ import absolute_import
 from __future__ import print_function
+from __future__ import generators
 
 # -*- coding: UTF-8 -*-
 
@@ -235,7 +236,6 @@ Test offsets that occur right at the DST changeover
 datetime.datetime(2011, 11, 6, 1, 0, tzinfo=TimeZoneInfo('Pacific Standard Time'))
 
 """
-from __future__ import generators
 
 __author__ = 'Jason R. Coombs <jaraco@jaraco.com>'
 

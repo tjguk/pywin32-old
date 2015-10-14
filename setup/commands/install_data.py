@@ -12,9 +12,9 @@ class my_install_data(distutils.command.install_data.install_data):
             installobj = self.distribution.get_command_obj('install')
             self.install_dir = installobj.install_lib
         log.info('Installing data files to %s' % self.install_dir)
-        install_data.finalize_options(self)
+        distutils.command.install_data.install_data.finalize_options(self)
 
     def copy_file(self, src, dest):
-        dest, copied = install_data.copy_file(self, src, dest)
+        dest, copied = distutils.command.install_data.install_data.copy_file(self, src, dest)
         return dest, copied
 
