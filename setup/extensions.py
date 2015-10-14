@@ -10,6 +10,8 @@ log = logging.logger(__package__)
 class WinExt(distutils.core.Extension):
     
     is_win32_exe = False
+    want_static_crt = False
+    pywin32_dir = None
     
     # Base class for all win32 extensions, with some predefined
     # library and include dirs, and predefined windows libraries.
@@ -78,7 +80,6 @@ class WinExt(distutils.core.Extension):
                             export_symbols)
         self.depends = depends or [] # stash it here, as py22 doesn't have it.
         self.unicode_mode = unicode_mode
-        self.want_static_crt = False
 
     def parse_def_file(self, path):
         # Extract symbols to export from a def-file
@@ -213,8 +214,14 @@ class WinExt(distutils.core.Extension):
                 # Unicode, Windows executables seem to need this magic:
                 if "/SUBSYSTEM:WINDOWS" in self.extra_link_args:
                     self.extra_link_args.append("/ENTRY:wWinMainCRTStartup")
+    
+    def get_pywin32_dir(self):
+        return self.pywin32_dir
 
 class WinExt_pythonwin(WinExt):
+    
+    pywin32_dir = "pythonwin"
+    
     def __init__ (self, name, **kw):
         if 'unicode_mode' not in kw:
             kw['unicode_mode']=None
@@ -222,29 +229,21 @@ class WinExt_pythonwin(WinExt):
                             ['-D_AFXDLL', '-D_AFXEXT','-D_MBCS'])
 
         WinExt.__init__(self, name, **kw)
-    def get_pywin32_dir(self):
-        return "pythonwin"
 
 class WinExt_pythonwin_exe(WinExt_pythonwin):
     is_win32_exe = True
     
 class WinExt_win32(WinExt):
-    def __init__ (self, name, **kw):
-        WinExt.__init__(self, name, **kw)
-    def get_pywin32_dir(self):
-        return "win32"
+    pywin32_dir = "win32"
 
 class WinExt_win32_static_crt(WinExt_win32):
-    def __init__(self, *args, **kwargs):
-        WinExt_win32.__init__(self, *args, **kwargs)
-        self.want_static_crt = True
+    want_static_crt = True
 
 class WinExt_pythonservice_exe(WinExt_win32):
     is_win32_exe = True
 
 class WinExt_ISAPI(WinExt):
-    def get_pywin32_dir(self):
-        return "isapi"
+    pywin32_dir = "isapi"
 
 # Note this is used only for "win32com extensions", not pythoncom
 # itself - thus, output is "win32comext"
@@ -264,6 +263,11 @@ class WinExt_win32com(WinExt):
 # * Output directory is different than the module's basename.
 # * Require use of the Exchange 2000 SDK - this works for both VC6 and 7
 class WinExt_win32com_mapi(WinExt_win32com):
+    
+    # 'win32com.mapi.exchange' and 'win32com.mapi.exchdapi' currently only
+    # ones with this special requirement
+    pywin32_dir = "win32comext/mapi"
+    
     def __init__ (self, name, **kw):
         # The Exchange 2000 SDK seems to install itself without updating
         # LIB or INCLUDE environment variables.  It does register the core
@@ -302,11 +306,6 @@ class WinExt_win32com_mapi(WinExt_win32com):
         kw["libraries"] = libs
         WinExt_win32com.__init__(self, name, **kw)
 
-    def get_pywin32_dir(self):
-    # 'win32com.mapi.exchange' and 'win32com.mapi.exchdapi' currently only
-    # ones with this special requirement
-        return "win32comext/mapi"
-
 class WinExt_win32com_axdebug(WinExt_win32com):
     def __init__ (self, name, **kw):
         # Later SDK versions again ship with activdbg.h, but if we attempt
@@ -317,6 +316,5 @@ class WinExt_win32com_axdebug(WinExt_win32com):
 
 # A hacky extension class for pywintypesXX.dll and pythoncomXX.dll
 class WinExt_system32(WinExt):
-    def get_pywin32_dir(self):
-        return "pywin32_system32"
-
+    
+    pywin32_dir = "pywin32_system32"

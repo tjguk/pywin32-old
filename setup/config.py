@@ -1,8 +1,4 @@
 import os, sys
-import logging
-log = logging.getLogger("pywin32.setup_support.config")
-log.setLevel(logging.DEBUG)
-log.addHandler(logging.StreamHandler())
 import distutils.msvccompiler
 
 try:
@@ -115,7 +111,7 @@ def _find_platform_sdk_dir():
         if sdkdir and sdk.is_useful(sdkdir):
             sdks.add(sdkdir)
     
-    log.debug("Found SDKs at: %s", "\n".join(sorted(sdks)))
+    #~ log.debug("Found SDKs at: %s", "\n".join(sorted(sdks)))
     if sdks:
         sdkdir = sdk.most_useful(sdks)
         return sdkdir
@@ -127,7 +123,7 @@ def _find_platform_sdk_dir():
         os.path.join(progfiles, "Microsoft SDK"),
     ]
     for sdkdir in defaultlocs:
-        log.debug("PSDK: try default location: '%s'" % sdkdir)
+        #~ log.debug("PSDK: try default location: '%s'" % sdkdir)
         if sdk.is_useful(sdkdir):
             return sdkdir
     

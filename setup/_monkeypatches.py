@@ -7,6 +7,7 @@ import os, sys
 from distutils.spawn import spawn
 from distutils.msvc9compiler import MSVCCompiler
 from distutils import ccompiler, msvccompiler
+import shutil
 
 MSVCCompiler._orig_spawn = MSVCCompiler.spawn
 MSVCCompiler._orig_link = MSVCCompiler.link

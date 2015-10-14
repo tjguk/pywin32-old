@@ -1,3 +1,4 @@
+from __future__ import absolute_import
 import os, sys
 import logging
 import logging.handlers
@@ -26,12 +27,3 @@ def logger(name):
     _logger.addHandler(handler)
     _logger.addHandler(stderr_handler)
     return _logger
-
-#~ _logger = logger("root")
-#~ def log(*args, **kwargs): _logger.log(*args, **kwargs)
-#~ def debug(*args, **kwargs): _logger.debug(*args, **kwargs)
-#~ def info(*args, **kwargs): _logger.info(*args, **kwargs)
-#~ def warn(*args, **kwargs): _logger.warn(*args, **kwargs)
-#~ def error(*args, **kwargs): _logger.error(*args, **kwargs)
-#~ def critical(*args, **kwargs): _logger.critical(*args, **kwargs)
-#~ def exception(*args, **kwargs): _logger.exception(*args, **kwargs)
