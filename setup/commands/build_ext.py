@@ -159,9 +159,6 @@ class my_build_ext(distutils.command.build_ext.build_ext):
                 os.environ["LIB"] += ";" + os.path.join(config.platform_sdk, 'VC', 'LIB')
                 log.debug("Vista SDK found: %%LIB%% now %s", os.environ["LIB"])
 
-    def _why_cant_build_extension(self, ext):
-        return ext._why_cant_build(self)
-        
     def _build_scintilla(self):
         path = 'pythonwin\\Scintilla'
         makefile = 'makefile_pythonwin'
@@ -280,11 +277,10 @@ class my_build_ext(distutils.command.build_ext.build_ext):
         for ext in self.extensions:
             if ext.is_win32_exe:
                 ext.finalize_options(self)
-                why = ext._why_cant_build(self)
-                if why is not None:
-                    self.excluded_extensions.append((ext, why))
-                    assert why, "please give a reason, or None"
-                    log.warn("Skipping %s: %s" % (ext.name, why))
+                can_build, reason = ext.can_build(self)
+                if not can_build:
+                    self.excluded_extensions.append((ext, reason))
+                    log.warn("Skipping %s: %s" % (ext.name, reason))
                     continue
 
                 try:
@@ -478,11 +474,10 @@ class my_build_ext(distutils.command.build_ext.build_ext):
         # Note we can't do this in advance, as some of the .lib files
         # we depend on may be built as part of the process - thus we can
         # only check an extension's lib files as we are building it.
-        why = ext._why_cant_build(self)
-        if why is not None:
-            self.excluded_extensions.append((ext, why))
-            assert why, "please give a reason, or None"
-            log.warn("Skipping %s: %s" % (ext.name, why))
+        can_build, reason = ext.can_build(self)
+        if not can_build:
+            self.excluded_extensions.append((ext, reason))
+            log.warn("Skipping %s: %s" % (ext.name, reason))
             return
         self.current_extension = ext
 

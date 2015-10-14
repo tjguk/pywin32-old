@@ -72,7 +72,6 @@ log = logging.logger(__package__)
 from . import config, sdk, extensions, commands
 
 from distutils.filelist import FileList
-from distutils.errors import DistutilsExecError
 
 log.debug("Building pywin32 %s", config.PYWIN32_VERSION)
 

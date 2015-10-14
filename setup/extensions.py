@@ -218,36 +218,32 @@ class WinExt(distutils.core.Extension):
     
     def get_pywin32_dir(self):
         return self.pywin32_dir
+
+    def _version_is_good(self, builder):
+        if self.windows_h_version is None:
+            #
+            # We don't care
+            #
+            return True, None
+        else:
+            return (
+                self.windows_h_version <= builder.windows_h_version,
+                "windows.h with version 0x%x is required but only 0x%x is installed" % (self.windows_h_version, builder.windows_h_version)
+            )
     
-    def can_build(self, builder):
-        """Return (can_build, why_not) where can_build is a boolean & why_not is a string
-        when why_not is False (and ignored otherwise).
-        """
-        return True, None
-
-    def _why_cant_build(self, builder):
-        """Return None if no reason not to build, or a string containing a reason
-        
-        Called by build_ext.build_extension before attempting to build
-        """
-        if self.windows_h_version is not None and \
-           self.windows_h_version > builder.windows_h_version:
-            return "WINDOWS.H with version 0x%x is required, but only " \
-                   "version 0x%x is installed." \
-                   % (self.windows_h_version, builder.windows_h_version)
-
+    def _headers_are_found(self, builder):
         look_dirs = builder.include_dirs + \
-                       os.environ.get("INCLUDE", "").split(os.pathsep)
-        for h in self.optional_headers:
-            for d in look_dirs:
-                if os.path.isfile(os.path.join(d, h)):
-                    break
-            else:
-                log.debug("Looked for %s in %s", h, look_dirs)
-                return "The header '%s' can not be located" % (h,)
-
-        common_dirs = builder.compiler.library_dirs[:]
-        common_dirs += os.environ.get("LIB", "").split(os.pathsep)
+            os.environ.get("INCLUDE", "").split(os.pathsep)
+        
+        for header in self.optional_headers:
+            if not any(os.path.isfile(os.path.join(dir, header)) for dir in look_dirs):
+                return False, "Could not find header %s" % header
+        else:
+            return True, None
+    
+    def _libraries_are_found(self, builder):
+        common_dirs = builder.compiler.library_dirs + \
+            os.environ.get("LIB", "").split(os.pathsep)
         patched_libs = []
         for lib in self.libraries:
             if lib.lower() in builder.found_libraries:
@@ -256,18 +252,29 @@ class WinExt(distutils.core.Extension):
                 look_dirs = common_dirs + self.library_dirs
                 found = builder.compiler.find_library_file(look_dirs, lib, builder.debug)
                 if not found:
-                    log.debug("Looked for %s in %s", lib, look_dirs)
-                    return "No library '%s'" % lib
+                    return False, "Unable to find library %r" % lib
+                
                 builder.found_libraries[lib.lower()] = found
+            
             patched_libs.append(os.path.splitext(os.path.basename(found))[0])
-
-        if self.platforms and builder.plat_name not in ext.platforms:
-            return "Only available on platforms %s" % (self.platforms,)
-
-        # We update the .libraries list with the resolved library name.
-        # This is really only so "_d" works.
+        
         self.libraries = patched_libs
-        return None # no reason - it can be built!
+        return True, None
+    
+    def can_build(self, builder):
+        """Return (can_build, why_not) where can_build is a boolean & why_not is a string
+        when why_not is False (and ignored otherwise).
+        """
+        can_build, reason = True, None
+        if can_build:
+            can_build, reason = self._version_is_good(builder)
+        if can_build:
+            can_build, reason = self._headers_are_found(builder)
+        if can_build:
+            can_build, reason = self._libraries_are_found(builder)
+            
+        return can_build, reason
+    
 
 class WinExt_pythonwin(WinExt):
     
@@ -357,16 +364,16 @@ class WinExt_win32com_mapi(WinExt_win32com):
         kw["libraries"] = libs
         WinExt_win32com.__init__(self, name, **kw)
 
-    def _why_cant_build(self, builder):
-        why = WinExt_win32com._why_cant_build(self, builder)
-        if why is None:
+    def can_build(self, builder):
+        can_build, reason = WinExt_win32com.can_build(self, builder)
+        if can_build:
             # Exclude exchange 32-bit utility libraries from 64-bit
             # builds. Note that the exchange module now builds, but only
             # includes interfaces for 64-bit builds.
             if builder.plat_name == 'win-amd64':
-                return "No 64-bit library for utility functions available."
-        else:
-            return why
+                can_build, reason = False, "No 64-bit library for utility functions available."
+            
+        return can_build, reason
 
 class WinExt_win32com_axdebug(WinExt_win32com):
     def __init__ (self, name, **kw):
