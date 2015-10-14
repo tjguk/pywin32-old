@@ -3,3 +3,13 @@
 __pycache__
 /setup/*.pyc
 /setup/commands/*.pyc
+/com/win32comext/adsi/src/*.cpp
+/com/win32comext/mapi/src/*.cpp
+/win32/src/*_swig.cpp
+/com/win32comext/adsi/src/*.h
+/com/win32comext/mapi/src/*.h
+/win32/src/PerfMon/PyPerfMsgs.h
+/win32/src/PythonServiceMessages.h
+/win32/src/win32evtlog_messages.h
+/win32/src/win32service_messages.h
+/isapi/src/pyISAPI_messages.h
