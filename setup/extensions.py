@@ -1,9 +1,13 @@
 import os, sys
 import distutils.core
 import string
+try:
+    import _winreg
+except ImportError:
+    import winreg as _winreg
 
-from .. import config
-from .. import logging
+from . import config
+from . import logging
 log = logging.logger(__package__)
 
 class WinExt(distutils.core.Extension):
