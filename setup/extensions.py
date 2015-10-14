@@ -236,7 +236,8 @@ class WinExt(distutils.core.Extension):
                    "version 0x%x is installed." \
                    % (self.windows_h_version, builder.windows_h_version)
 
-        look_dirs = builder.include_dirs
+        look_dirs = builder.include_dirs + \
+                       os.environ.get("INCLUDE", "").split(os.pathsep)
         for h in self.optional_headers:
             for d in look_dirs:
                 if os.path.isfile(os.path.join(d, h)):
