@@ -1,4 +1,6 @@
 import os, sys
+from . import logging
+log = logging.logger(__package__)
 from . import commands
 
 # Some nasty hacks to prevent most of our extensions using a manifest, as

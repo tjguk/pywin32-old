@@ -1,3 +1,4 @@
-from .build import build
-from .build_ext import build_ext
-from .install import install
+from .build import my_build
+from .build_ext import my_build_ext
+from .install import my_install
+from .install_data import my_install_data

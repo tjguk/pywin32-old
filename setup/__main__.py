@@ -2,8 +2,9 @@ from __future__ import print_function
 build_id="219.5" # may optionally include a ".{patchno}" suffix.
 # Putting buildno at the top prevents automatic __doc__ assignment, and
 # I *want* the build number at the top :)
-import setup_support
-from setup_support import config, sdk, extensions, commands
+from . import logging
+log = logging.logger(__package__)
+from . import config, sdk, extensions, commands
 
 __doc__="""This is a distutils setup-script for the pywin32 extensions
 
@@ -86,10 +87,6 @@ from distutils.command.install_data import install_data
 from distutils.command.build_py import build_py
 from distutils.command.build_scripts import build_scripts
 
-# some modules need a static CRT to avoid problems caused by them having a
-# manifest.
-static_crt_modules = ["winxpgui"]
-
 from distutils.dep_util import newer_group, newer
 from distutils import dir_util, file_util
 from distutils.sysconfig import get_python_lib
@@ -110,10 +107,12 @@ except NameError:
     this_file = sys.argv[0]
 
 this_file = os.path.abspath(this_file)
+here = os.path.dirname(this_file)
 # We get upset if the cwd is not our source dir, but it is a PITA to
 # insist people manually CD there first!
-if os.path.dirname(this_file):
-    os.chdir(os.path.dirname(this_file))
+if here:
+    start_in = os.path.abspath(os.path.join(here, ".."))
+    os.chdir(start_in)
 
 # Start address we assign base addresses from.  See comment re
 # dll_base_address later in this file...
@@ -137,6 +136,11 @@ class WinExt_win32(extensions.WinExt):
         self.is_win32_exe = True
     def get_pywin32_dir(self):
         return "win32"
+
+class WinExt_win32_static_crt(WinExt_win32):
+    def __init__(self, *args, **kwargs):
+        WinExt_win32.__init__(self, *args, **kwargs)
+        self.want_static_crt = True
 
 class WinExt_ISAPI(extensions.WinExt):
     def get_pywin32_dir(self):
@@ -369,7 +373,7 @@ for info in (
         ("win2kras", "rasapi32", None, 0x0500, "win32/src/win2krasmodule.cpp"),
         ("win32cred", "AdvAPI32 credui", True, 0x0501, 'win32/src/win32credmodule.cpp'),
         ("win32crypt", "Crypt32 Advapi32", True, 0x0500, """
-            win32/src/win32crypt/win32cryptmodule.cpp	
+            win32/src/win32crypt/win32cryptmodule.cpp    
             win32/src/win32crypt/win32crypt_structs.cpp
             win32/src/win32crypt/PyCERTSTORE.cpp
             win32/src/win32crypt/PyCERT_CONTEXT.cpp
@@ -740,7 +744,7 @@ com_extensions += [
                         %(mapi)s/PyIMsgStore.i          %(mapi)s/PyIMsgStore.cpp
                         %(mapi)s/PyIProfAdmin.i         %(mapi)s/PyIProfAdmin.cpp
                         %(mapi)s/PyIProfSect.i          %(mapi)s/PyIProfSect.cpp
-                        %(mapi)s/PyIConverterSession.i	%(mapi)s/PyIConverterSession.cpp
+                        %(mapi)s/PyIConverterSession.i    %(mapi)s/PyIConverterSession.cpp
                         %(mapi)s/PyIMAPIAdviseSink.cpp
                         %(mapi)s/mapiutil.cpp
                         %(mapi)s/mapiguids.cpp
@@ -1091,47 +1095,6 @@ W32_exe_files = [
         extra_link_args=["/SUBSYSTEM:WINDOWS"],
         optional_headers=['afxres.h']),
 ]
-
-# Special definitions for SWIG.
-swig_interface_parents = {
-    # source file base,     "base class" for generated COM support
-    'mapi':                 None, # not a class, but module
-    'PyIMailUser':          'IMAPIContainer',
-    'PyIABContainer':       'IMAPIContainer',
-    'PyIAddrBook':          'IMAPIProp',
-    'PyIAttach':            'IMAPIProp',
-    'PyIDistList':          'IMAPIContainer',
-    'PyIMailUser':          'IMAPIContainer',
-    'PyIMAPIContainer':     'IMAPIProp',
-    'PyIMAPIFolder':        'IMAPIContainer',
-    'PyIMAPIProp':          '', # '' == default base
-    'PyIMAPISession':       '',
-    'PyIMAPIStatus':       'IMAPIProp',
-    'PyIMAPITable':         '',
-    'PyIMessage':           'IMAPIProp',
-    'PyIMsgServiceAdmin':   '',
-    'PyIMsgStore':          'IMAPIProp',
-    'PyIProfAdmin':         '',
-    'PyIProfSect':          'IMAPIProp',
-	'PyIConverterSession':	'',
-    # exchange and exchdapi
-    'exchange':             None,
-    'exchdapi':             None,
-    'PyIExchangeManageStore': '',
-    # ADSI
-    'adsi':                 None, # module
-    'PyIADsContainer':      'IDispatch',
-    'PyIADsDeleteOps':      'IDispatch',
-    'PyIADsUser':           'IADs',
-    'PyIDirectoryObject':   '',
-    'PyIDirectorySearch':   '',
-    'PyIDsObjectPicker':   '',
-    'PyIADs':   'IDispatch',
-}
-
-# .i files that are #included, and hence are not part of the build.  Our .dsp
-# parser isn't smart enough to differentiate these.
-swig_include_files = "mapilib adsilib".split()
 
 # Helper to allow our script specifications to include wildcards.
 def expand_modules(module_dir):

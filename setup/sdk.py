@@ -1,8 +1,7 @@
 import os, sys
-import logging
-log = logging.getLogger("pywin32.setup_support.sdk")
-log.setLevel(logging.DEBUG)
-log.addHandler(logging.StreamHandler())
+
+from . import logging
+log = logging.logger(__package__)
 
 try:
     import _winreg

@@ -1,5 +1,8 @@
 import distutils.command.install_data
 
+from .. import logging
+log = logging.logger(__package__)
+
 class my_install_data(distutils.command.install_data.install_data):
     """A custom install_data command, which will install it's files
     into the standard directories (normally lib/site-packages).

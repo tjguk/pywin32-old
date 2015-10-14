@@ -1,5 +1,8 @@
 import distutils.command.install
 
+from .. import logging
+log = logging.logger(__package__)
+
 class my_install(distutils.command.install.install):
     def run(self):
         install.run(self)

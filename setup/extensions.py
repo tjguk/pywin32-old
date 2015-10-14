@@ -3,6 +3,8 @@ import distutils.core
 import string
 
 from . import config
+from . import logging
+log = logging.logger(__package__)
 
 class WinExt(distutils.core.Extension):
     # Base class for all win32 extensions, with some predefined
@@ -73,6 +75,7 @@ class WinExt(distutils.core.Extension):
         self.depends = depends or [] # stash it here, as py22 doesn't have it.
         self.unicode_mode = unicode_mode
         self.is_win32_exe = False
+        self.want_static_crt = False
 
     def parse_def_file(self, path):
         # Extract symbols to export from a def-file

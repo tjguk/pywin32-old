@@ -1,9 +1,17 @@
+import os, sys
 import distutils.command.build_ext
+from distutils.dep_util import newer_group, newer
+import glob
+import re
+
+from .. import config
+from .. import logging
+log = logging.logger(__package__)
 
 class my_build_ext(distutils.command.build_ext.build_ext):
 
     def finalize_options(self):
-        build_ext.finalize_options(self)
+        distutils.command.build_ext.build_ext.finalize_options(self)
         self.windows_h_version = None
         # The pywintypes library is created in the build_temp
         # directory, so we need to add this to library_dirs
@@ -527,7 +535,7 @@ class my_build_ext(distutils.command.build_ext.build_ext):
         # with special defines. So we cannot use a shared
         # directory for objects, we must use a special one for each extension.
         old_build_temp = self.build_temp
-        want_static_crt = sys.version_info > (2,6) and ext.name in static_crt_modules
+        want_static_crt = ext.want_static_crt 
         if want_static_crt:
             self.compiler.compile_options.remove('/MD')
             self.compiler.compile_options.append('/MT')
@@ -535,7 +543,7 @@ class my_build_ext(distutils.command.build_ext.build_ext):
             self.compiler.compile_options_debug.append('/MTd')
 
         try:
-            build_ext.build_extension(self, ext)
+            distutils.command.build_ext.build_ext.build_extension(self, ext)
             # XXX This has to be changed for mingw32
             # Get the .lib files we need.  This is limited to pywintypes,
             # pythoncom and win32ui - but the first 2 have special names
@@ -606,12 +614,12 @@ class my_build_ext(distutils.command.build_ext.build_ext):
         elif name in ['pythonservice', 'Pythonwin']:
             return name + extra_exe
 
-        return build_ext.get_ext_filename(self, name)
+        return distutils.command.build_ext.build_ext.get_ext_filename(self, name)
 
     def get_export_symbols(self, ext):
         if ext.is_regular_dll:
             return ext.export_symbols
-        return build_ext.get_export_symbols(self, ext)
+        return distutils.command.build_ext.build_ext.get_export_symbols(self, ext)
 
     def find_swig(self):
         if "SWIG" in os.environ:
@@ -637,11 +645,11 @@ class my_build_ext(distutils.command.build_ext.build_ext):
         for source in sources:
             (base, sext) = os.path.splitext(source)
             if sext == ".i":             # SWIG interface file
-                if os.path.split(base)[1] in swig_include_files:
+                if os.path.split(base)[1] in config.swig_include_files:
                     continue
                 swig_sources.append(source)
                 # Patch up the filenames for various special cases...
-                if os.path.basename(base) in swig_interface_parents:
+                if os.path.basename(base) in config.swig_interface_parents:
                     swig_targets[source] = base + target_ext
                 elif self.current_extension.name == "winxpgui" and \
                      os.path.basename(base)=="win32gui":
@@ -672,7 +680,7 @@ class my_build_ext(distutils.command.build_ext.build_ext):
                 swig_cmd.append("-DSWIG_PY32BIT")
             target = swig_targets[source]
             try:
-                interface_parent = swig_interface_parents[
+                interface_parent = config.swig_interface_parents[
                                 os.path.basename(os.path.splitext(source)[0])]
             except KeyError:
                 # "normal" swig file - no special win32 issues.

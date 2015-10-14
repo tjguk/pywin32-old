@@ -14,6 +14,53 @@ else:
 
 from . import sdk
 
+# some modules need a static CRT to avoid problems caused by them having a
+# manifest.
+#
+# Now a subclass attribute
+#
+#~ static_crt_modules = ["winxpgui"]
+
+# .i files that are #included, and hence are not part of the build.  Our .dsp
+# parser isn't smart enough to differentiate these.
+swig_include_files = "mapilib adsilib".split()
+# Special definitions for SWIG.
+swig_interface_parents = {
+    # source file base,     "base class" for generated COM support
+    'mapi':                 None, # not a class, but module
+    'PyIMailUser':          'IMAPIContainer',
+    'PyIABContainer':       'IMAPIContainer',
+    'PyIAddrBook':          'IMAPIProp',
+    'PyIAttach':            'IMAPIProp',
+    'PyIDistList':          'IMAPIContainer',
+    'PyIMailUser':          'IMAPIContainer',
+    'PyIMAPIContainer':     'IMAPIProp',
+    'PyIMAPIFolder':        'IMAPIContainer',
+    'PyIMAPIProp':          '', # '' == default base
+    'PyIMAPISession':       '',
+    'PyIMAPIStatus':       'IMAPIProp',
+    'PyIMAPITable':         '',
+    'PyIMessage':           'IMAPIProp',
+    'PyIMsgServiceAdmin':   '',
+    'PyIMsgStore':          'IMAPIProp',
+    'PyIProfAdmin':         '',
+    'PyIProfSect':          'IMAPIProp',
+    'PyIConverterSession':    '',
+    # exchange and exchdapi
+    'exchange':             None,
+    'exchdapi':             None,
+    'PyIExchangeManageStore': '',
+    # ADSI
+    'adsi':                 None, # module
+    'PyIADsContainer':      'IDispatch',
+    'PyIADsDeleteOps':      'IDispatch',
+    'PyIADsUser':           'IADs',
+    'PyIDirectoryObject':   '',
+    'PyIDirectorySearch':   '',
+    'PyIDsObjectPicker':   '',
+    'PyIADs':   'IDispatch',
+}
+
 def _find_platform_sdk_dir():
     # Finding the Platform SDK install dir is a treat. There can be some
     # dead ends so we only consider the job done if we find the "windows.h"

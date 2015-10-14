@@ -1,8 +1,11 @@
 import distutils.command.build
 
+from .. import logging
+log = logging.logger(__package__)
+
 class my_build(distutils.command.build.build):
     def run(self):
-        build.run(self)
+        distutils.command.build.build.run(self)
         # write a pywin32.version.txt.
         ver_fname = os.path.join(gettempdir(), "pywin32.version.txt")
         try:
