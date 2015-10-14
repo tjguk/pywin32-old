@@ -128,11 +128,11 @@ class my_compiler(base_compiler):
             try:
                 self.spawn(args)
             except DistutilsExecError as msg:
-                log.info("VersionStamp failed: %s", msg)
+                #~ log.info("VersionStamp failed: %s", msg)
                 ok = False
         
         if not ok:
-            log.warn('Unable to import verstamp, no version info will be added')
+            #~ log.warn('Unable to import verstamp, no version info will be added')
             self.can_apply_verstamp = False
         
     def link(self,
