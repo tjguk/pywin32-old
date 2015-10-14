@@ -9,6 +9,8 @@ else:
     UNICODE_MODE = False
 
 from . import sdk
+from . import logging
+log = logging.logger(__package__)
 
 BUILD_ID = "219.5" # may optionally include a ".{patchno}" suffix.
 PYWIN32_VERSION = "%d.%d.%s%s" % (sys.version_info[0], sys.version_info[1],
@@ -111,7 +113,7 @@ def _find_platform_sdk_dir():
         if sdkdir and sdk.is_useful(sdkdir):
             sdks.add(sdkdir)
     
-    #~ log.debug("Found SDKs at: %s", "\n".join(sorted(sdks)))
+    log.debug("Found SDKs at: %s", "\n".join(sorted(sdks)))
     if sdks:
         sdkdir = sdk.most_useful(sdks)
         return sdkdir
@@ -123,7 +125,7 @@ def _find_platform_sdk_dir():
         os.path.join(progfiles, "Microsoft SDK"),
     ]
     for sdkdir in defaultlocs:
-        #~ log.debug("PSDK: try default location: '%s'" % sdkdir)
+        log.debug("PSDK: try default location: '%s'" % sdkdir)
         if sdk.is_useful(sdkdir):
             return sdkdir
     

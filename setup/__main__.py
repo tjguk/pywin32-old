@@ -71,11 +71,8 @@ from . import logging
 log = logging.logger(__package__)
 from . import config, sdk, extensions, commands
 
-#~ from distutils import dir_util, file_util
-#~ from distutils.sysconfig import get_python_lib
 from distutils.filelist import FileList
 from distutils.errors import DistutilsExecError
-#~ import distutils.util
 
 log.debug("Building pywin32 %s", config.PYWIN32_VERSION)
 
@@ -84,8 +81,7 @@ try:
 except NameError:
     this_file = sys.argv[0]
 
-this_file = os.path.abspath(this_file)
-here = os.path.dirname(this_file)
+here = os.path.dirname(os.path.abspath(this_file))
 # We get upset if the cwd is not our source dir, but it is a PITA to
 # insist people manually CD there first!
 if here:
@@ -532,15 +528,15 @@ com_extensions += [
                         %(mapi)s/mapiutil.cpp
                         %(mapi)s/mapiguids.cpp
                         """ % dirs).split()),
-    #~ extensions.WinExt_win32com_mapi('exchange', libraries="mapi32",
-                         #~ sources=("""
-                                  #~ %(mapi)s/exchange.i         %(mapi)s/exchange.cpp
-                                  #~ %(mapi)s/PyIExchangeManageStore.i %(mapi)s/PyIExchangeManageStore.cpp
-                                  #~ """ % dirs).split()),
-    #~ extensions.WinExt_win32com_mapi('exchdapi', libraries="mapi32",
-                         #~ sources=("""
-                                  #~ %(mapi)s/exchdapi.i         %(mapi)s/exchdapi.cpp
-                                  #~ """ % dirs).split()),
+    extensions.WinExt_win32com_mapi('exchange', libraries="mapi32",
+                         sources=("""
+                                  %(mapi)s/exchange.i         %(mapi)s/exchange.cpp
+                                  %(mapi)s/PyIExchangeManageStore.i %(mapi)s/PyIExchangeManageStore.cpp
+                                  """ % dirs).split()),
+    extensions.WinExt_win32com_mapi('exchdapi', libraries="mapi32",
+                         sources=("""
+                                  %(mapi)s/exchdapi.i         %(mapi)s/exchdapi.cpp
+                                  """ % dirs).split()),
     extensions.WinExt_win32com('shell', libraries='shell32', pch_header="shell_pch.h",
                     windows_h_version = 0x600,
                     sources=("""

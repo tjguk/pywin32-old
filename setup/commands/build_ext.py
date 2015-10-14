@@ -27,6 +27,45 @@ class my_build_ext(distutils.command.build_ext.build_ext):
             # Old Python version that doesn't support cross-compile
             self.plat_name = distutils.util.get_platform()
 
+    def _find_windows_h_version(self):
+        """Search the known include directories for a file which might
+        contain the Windows SDK version.
+        """
+        include_dirs = self.compiler.include_dirs + \
+                       os.environ.get("INCLUDE", "").split(os.pathsep)
+        log.debug("Include dirs: %s", include_dirs)
+        
+        if self.windows_h_version is None:
+            for d in include_dirs:
+                # We look for _WIN32_WINNT instead of WINVER as the Vista
+                # SDK defines _WIN32_WINNT as WINVER and we aren't that clever
+                # * Windows Server 2003 SDK sticks this version in WinResrc.h
+                # * Vista SDKs stick the version in sdkddkver.h
+                for header in ('WINDOWS.H', 'SDKDDKVER.H', "WinResrc.h"):
+                    look = os.path.join(d, header)
+                    if os.path.isfile(look):
+                        # read the fist 100 lines, looking for #define WINVER 0xNN
+                        # (Vista SDKs now define this based on _WIN32_WINNT,
+                        # which should still be fine for old versions)
+                        reob = re.compile("#define\W*_WIN32_WINNT\W*(0x[0-9a-fA-F]+)")
+                        f = open(look, "r")
+                        for i in range(500):
+                            line = f.readline()
+                            match = reob.match(line)
+                            if match is not None:
+                                self.windows_h_version = int(match.group(1), 16)
+                                log.info("Found version 0x%x in %s" \
+                                         % (self.windows_h_version, look))
+                                break
+                        else:
+                            log.debug("No version in %r - looking for another...", look)
+                    if self.windows_h_version is not None:
+                        break
+                if self.windows_h_version is not None:
+                    break
+            else:
+                raise RuntimeError("Can't find a version in Windows.h")
+    
     def _fixup_sdk_dirs(self):
         # Adjust paths etc for the platform SDK - this prevents the user from
         # needing to manually add these directories via the MSVC UI.  Note
@@ -121,82 +160,8 @@ class my_build_ext(distutils.command.build_ext.build_ext):
                 log.debug("Vista SDK found: %%LIB%% now %s", os.environ["LIB"])
 
     def _why_cant_build_extension(self, ext):
-        # Return None, or a reason it can't be built.
-        # Exclude exchange 32-bit utility libraries from 64-bit
-        # builds. Note that the exchange module now builds, but only
-        # includes interfaces for 64-bit builds.
-        if self.plat_name == 'win-amd64' and ext.name in ['exchdapi']:
-            return "No 64-bit library for utility functions available."
-        include_dirs = self.compiler.include_dirs + \
-                       os.environ.get("INCLUDE", "").split(os.pathsep)
-        if self.windows_h_version is None:
-            for d in include_dirs:
-                # We look for _WIN32_WINNT instead of WINVER as the Vista
-                # SDK defines _WIN32_WINNT as WINVER and we aren't that clever
-                # * Windows Server 2003 SDK sticks this version in WinResrc.h
-                # * Vista SDKs stick the version in sdkddkver.h
-                for header in ('WINDOWS.H', 'SDKDDKVER.H', "WinResrc.h"):
-                    look = os.path.join(d, header)
-                    if os.path.isfile(look):
-                        # read the fist 100 lines, looking for #define WINVER 0xNN
-                        # (Vista SDKs now define this based on _WIN32_WINNT,
-                        # which should still be fine for old versions)
-                        reob = re.compile("#define\W*_WIN32_WINNT\W*(0x[0-9a-fA-F]+)")
-                        f = open(look, "r")
-                        for i in range(500):
-                            line = f.readline()
-                            match = reob.match(line)
-                            if match is not None:
-                                self.windows_h_version = int(match.group(1), 16)
-                                log.info("Found version 0x%x in %s" \
-                                         % (self.windows_h_version, look))
-                                break
-                        else:
-                            log.debug("No version in %r - looking for another...", look)
-                    if self.windows_h_version is not None:
-                        break
-                if self.windows_h_version is not None:
-                    break
-            else:
-                raise RuntimeError("Can't find a version in Windows.h")
-        if ext.windows_h_version is not None and \
-           ext.windows_h_version > self.windows_h_version:
-            return "WINDOWS.H with version 0x%x is required, but only " \
-                   "version 0x%x is installed." \
-                   % (ext.windows_h_version, self.windows_h_version)
-
-        look_dirs = include_dirs
-        for h in ext.optional_headers:
-            for d in look_dirs:
-                if os.path.isfile(os.path.join(d, h)):
-                    break
-            else:
-                log.debug("Looked for %s in %s", h, look_dirs)
-                return "The header '%s' can not be located" % (h,)
-
-        common_dirs = self.compiler.library_dirs[:]
-        common_dirs += os.environ.get("LIB", "").split(os.pathsep)
-        patched_libs = []
-        for lib in ext.libraries:
-            if lib.lower() in self.found_libraries:
-                found = self.found_libraries[lib.lower()]
-            else:
-                look_dirs = common_dirs + ext.library_dirs
-                found = self.compiler.find_library_file(look_dirs, lib, self.debug)
-                if not found:
-                    log.debug("Looked for %s in %s", lib, look_dirs)
-                    return "No library '%s'" % lib
-                self.found_libraries[lib.lower()] = found
-            patched_libs.append(os.path.splitext(os.path.basename(found))[0])
-
-        if ext.platforms and self.plat_name not in ext.platforms:
-            return "Only available on platforms %s" % (ext.platforms,)
-
-        # We update the .libraries list with the resolved library name.
-        # This is really only so "_d" works.
-        ext.libraries = patched_libs
-        return None # no reason - it can be built!
-
+        return ext._why_cant_build(self)
+        
     def _build_scintilla(self):
         path = 'pythonwin\\Scintilla'
         makefile = 'makefile_pythonwin'
@@ -300,6 +265,7 @@ class my_build_ext(distutils.command.build_ext.build_ext):
         if config.platform_sdk:
             self._fixup_sdk_dirs()
 
+        self._find_windows_h_version()
         # Here we hack a "pywin32" directory (one of 'win32', 'win32com',
         # 'pythonwin' etc), as distutils doesn't seem to like the concept
         # of multiple top-level directories.
@@ -314,7 +280,7 @@ class my_build_ext(distutils.command.build_ext.build_ext):
         for ext in self.extensions:
             if ext.is_win32_exe:
                 ext.finalize_options(self)
-                why = self._why_cant_build_extension(ext)
+                why = ext._why_cant_build(self)
                 if why is not None:
                     self.excluded_extensions.append((ext, why))
                     assert why, "please give a reason, or None"
@@ -332,7 +298,7 @@ class my_build_ext(distutils.command.build_ext.build_ext):
         if sys.version_info > (2,6) and sys.version_info < (3, 3):
             # only stuff built with msvc9 needs this loader.
             self._build_pycom_loader()
-        #~ self._build_scintilla()
+        self._build_scintilla()
         # Copy cpp lib files needed to create Python COM extensions
         clib_files = (['win32', 'pywintypes%s.lib'],
                       ['win32com', 'pythoncom%s.lib'],
@@ -512,7 +478,7 @@ class my_build_ext(distutils.command.build_ext.build_ext):
         # Note we can't do this in advance, as some of the .lib files
         # we depend on may be built as part of the process - thus we can
         # only check an extension's lib files as we are building it.
-        why = self._why_cant_build_extension(ext)
+        why = ext._why_cant_build(self)
         if why is not None:
             self.excluded_extensions.append((ext, why))
             assert why, "please give a reason, or None"
