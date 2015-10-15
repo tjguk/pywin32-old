@@ -83,36 +83,24 @@ MSVCCompiler.link = monkeypatched_link
 # itself, but as at 2.4 that hasn't happened.  We need yet more vile
 # hacks to get a subclassed compiler in.
 # (otherwise we replace all of build_extension!)
-def my_new_compiler(**kw):
+def new_compiler(**kw):
     if 'compiler' in kw and kw['compiler'] in (None, 'msvc'):
-        return my_compiler()
+        return compiler()
     return orig_new_compiler(**kw)
 
 # No way to cleanly wedge our compiler sub-class in.
 orig_new_compiler = ccompiler.new_compiler
-ccompiler.new_compiler = my_new_compiler
+ccompiler.new_compiler = new_compiler
 
-base_compiler = msvccompiler.MSVCCompiler
-
-class my_compiler(base_compiler):
-    # Just one GUIDS.CPP and it gives trouble on mainwin too. Maybe I
-    # should just rename the file, but a case-only rename is likely to be
-    # worse!  This can probably go away once we kill the VS project files
-    # though, as we can just specify the lowercase name in the module def.
-    _cpp_extensions = base_compiler._cpp_extensions + [".CPP"]
-    src_extensions = base_compiler.src_extensions + [".CPP"]
+class compiler(msvccompiler.MSVCCompiler):
     
     def __init__(self, *args, **kwargs):
-        base_compiler.__init__(self, *args, **kwargs)
+        msvccompiler.MSVCCompiler.__init__(self, *args, **kwargs)
         self.can_apply_verstamp = True
 
-    def apply_verstamp(self, output_filename):
+    def apply_verstamp(self, output_filename
         from . import config
-        try:
-            import optparse # win32verstamp will not work without this!
-            ok = True
-        except ImportError:
-            ok = False
+        ok = True
         if ok:
             stamp_script = os.path.join(sys.prefix, "Lib", "site-packages",
                                         "win32", "lib", "win32verstamp.py")
@@ -130,38 +118,20 @@ class my_compiler(base_compiler):
             try:
                 self.spawn(args)
             except DistutilsExecError as msg:
+                print("VersionStamp failed: %s" % msg)
                 #~ log.info("VersionStamp failed: %s", msg)
                 ok = False
         
         if not ok:
+            print("Unable to apply verstamp")
             #~ log.warn('Unable to import verstamp, no version info will be added')
             self.can_apply_verstamp = False
         
-    def link(self,
-              target_desc,
-              objects,
-              output_filename,
-              output_dir=None,
-              libraries=None,
-              library_dirs=None,
-              runtime_library_dirs=None,
-              export_symbols=None,
-              debug=0, *args, **kw):
-        msvccompiler.MSVCCompiler.link( self,
-                                        target_desc,
-                                        objects,
-                                        output_filename,
-                                        output_dir,
-                                        libraries,
-                                        library_dirs,
-                                        runtime_library_dirs,
-                                        export_symbols,
-                                        debug, *args, **kw)
-        
+    def link(self, target_desc, objects, output_filename, *args, **kwargs):
+        msvccompiler.MSVCCompiler.link(self, target_desc, objects, output_filename, *args, **kwargs)
         # Here seems a good place to stamp the version of the built
         # target.  Do this externally to avoid suddenly dragging in the
         # modules needed by this process, and which we will soon try and
         # update.
         if self.can_apply_verstamp:
             self.apply_verstamp(output_filename)
-

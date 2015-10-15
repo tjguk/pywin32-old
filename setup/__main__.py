@@ -60,12 +60,11 @@ To build 64bit versions of this:
    see the distutils cross-compilation documentation for more details.
 """
 # Originally by Thomas Heller, started in 2000 or so.
-import os, string, sys
-import types, glob
+import os, sys
 import re
 from tempfile import gettempdir
-import shutil
 from distutils.core import setup
+from distutils.filelist import FileList
 
 from . import logging
 log = logging.logger(__package__)
@@ -315,81 +314,81 @@ dirs = {
 
 # The COM modules.
 pythoncom = extensions.WinExt_system32('pythoncom',
-                   sources=("""
-                        %(win32com)s/dllmain.cpp            %(win32com)s/ErrorUtils.cpp
-                        %(win32com)s/MiscTypes.cpp          %(win32com)s/oleargs.cpp
-                        %(win32com)s/PyComHelpers.cpp       %(win32com)s/PyFactory.cpp
-                        %(win32com)s/PyGatewayBase.cpp      %(win32com)s/PyIBase.cpp
-                        %(win32com)s/PyIClassFactory.cpp    %(win32com)s/PyIDispatch.cpp
-                        %(win32com)s/PyIUnknown.cpp         %(win32com)s/PyRecord.cpp
-                        %(win32com)s/extensions/PySTGMEDIUM.cpp %(win32com)s/PyStorage.cpp
-                        %(win32com)s/PythonCOM.cpp          %(win32com)s/Register.cpp
-                        %(win32com)s/stdafx.cpp             %(win32com)s/univgw.cpp
-                        %(win32com)s/univgw_dataconv.cpp    %(win32com)s/extensions/PyFUNCDESC.cpp
-                        %(win32com)s/extensions/PyGConnectionPoint.cpp      %(win32com)s/extensions/PyGConnectionPointContainer.cpp
-                        %(win32com)s/extensions/PyGEnumVariant.cpp          %(win32com)s/extensions/PyGErrorLog.cpp
-                        %(win32com)s/extensions/PyGPersist.cpp              %(win32com)s/extensions/PyGPersistPropertyBag.cpp
-                        %(win32com)s/extensions/PyGPersistStorage.cpp       %(win32com)s/extensions/PyGPersistStream.cpp
-                        %(win32com)s/extensions/PyGPersistStreamInit.cpp    %(win32com)s/extensions/PyGPropertyBag.cpp
-                        %(win32com)s/extensions/PyGStream.cpp               %(win32com)s/extensions/PyIBindCtx.cpp
-                        %(win32com)s/extensions/PyICatInformation.cpp       %(win32com)s/extensions/PyICatRegister.cpp
-                        %(win32com)s/extensions/PyIConnectionPoint.cpp      %(win32com)s/extensions/PyIConnectionPointContainer.cpp
-                        %(win32com)s/extensions/PyICreateTypeInfo.cpp       %(win32com)s/extensions/PyICreateTypeLib.cpp
-                        %(win32com)s/extensions/PyICreateTypeLib2.cpp       %(win32com)s/extensions/PyIDataObject.cpp
-                        %(win32com)s/extensions/PyIDropSource.cpp           %(win32com)s/extensions/PyIDropTarget.cpp
-                        %(win32com)s/extensions/PyIEnumCATEGORYINFO.cpp     %(win32com)s/extensions/PyIEnumConnectionPoints.cpp
-                        %(win32com)s/extensions/PyIEnumConnections.cpp      %(win32com)s/extensions/PyIEnumFORMATETC.cpp
-                        %(win32com)s/extensions/PyIEnumGUID.cpp             %(win32com)s/extensions/PyIEnumSTATPROPSETSTG.cpp
-                        %(win32com)s/extensions/PyIEnumSTATPROPSTG.cpp      %(win32com)s/extensions/PyIEnumSTATSTG.cpp
-                        %(win32com)s/extensions/PyIEnumString.cpp           %(win32com)s/extensions/PyIEnumVARIANT.cpp
-                        %(win32com)s/extensions/PyIErrorLog.cpp             %(win32com)s/extensions/PyIExternalConnection.cpp
-                        %(win32com)s/extensions/PyIGlobalInterfaceTable.cpp %(win32com)s/extensions/PyILockBytes.cpp
-                        %(win32com)s/extensions/PyIMoniker.cpp              %(win32com)s/extensions/PyIOleWindow.cpp
-                        %(win32com)s/extensions/PyIPersist.cpp              %(win32com)s/extensions/PyIPersistFile.cpp
-                        %(win32com)s/extensions/PyIPersistPropertyBag.cpp   %(win32com)s/extensions/PyIPersistStorage.cpp
-                        %(win32com)s/extensions/PyIPersistStream.cpp        %(win32com)s/extensions/PyIPersistStreamInit.cpp
-                        %(win32com)s/extensions/PyIPropertyBag.cpp          %(win32com)s/extensions/PyIPropertySetStorage.cpp
-                        %(win32com)s/extensions/PyIPropertyStorage.cpp      %(win32com)s/extensions/PyIProvideClassInfo.cpp
-                        %(win32com)s/extensions/PyIRunningObjectTable.cpp   %(win32com)s/extensions/PyIServiceProvider.cpp
-                        %(win32com)s/extensions/PyIStorage.cpp              %(win32com)s/extensions/PyIStream.cpp
-                        %(win32com)s/extensions/PyIType.cpp                 %(win32com)s/extensions/PyITypeObjects.cpp
-                        %(win32com)s/extensions/PyTYPEATTR.cpp              %(win32com)s/extensions/PyVARDESC.cpp
-                        %(win32com)s/extensions/PyICancelMethodCalls.cpp    %(win32com)s/extensions/PyIContext.cpp
-                        %(win32com)s/extensions/PyIEnumContextProps.cpp     %(win32com)s/extensions/PyIClientSecurity.cpp
-                        %(win32com)s/extensions/PyIServerSecurity.cpp
-                        """ % dirs).split(),
-                   depends=(r"""
-                        %(win32com)s/include\propbag.h          %(win32com)s/include\PyComTypeObjects.h
-                        %(win32com)s/include\PyFactory.h        %(win32com)s/include\PyGConnectionPoint.h
-                        %(win32com)s/include\PyGConnectionPointContainer.h
-                        %(win32com)s/include\PyGPersistStorage.h %(win32com)s/include\PyIBindCtx.h
-                        %(win32com)s/include\PyICatInformation.h %(win32com)s/include\PyICatRegister.h
-                        %(win32com)s/include\PyIDataObject.h    %(win32com)s/include\PyIDropSource.h
-                        %(win32com)s/include\PyIDropTarget.h    %(win32com)s/include\PyIEnumConnectionPoints.h
-                        %(win32com)s/include\PyIEnumConnections.h %(win32com)s/include\PyIEnumFORMATETC.h
-                        %(win32com)s/include\PyIEnumGUID.h      %(win32com)s/include\PyIEnumSTATPROPSETSTG.h
-                        %(win32com)s/include\PyIEnumSTATSTG.h   %(win32com)s/include\PyIEnumString.h
-                        %(win32com)s/include\PyIEnumVARIANT.h   %(win32com)s/include\PyIExternalConnection.h
-                        %(win32com)s/include\PyIGlobalInterfaceTable.h %(win32com)s/include\PyILockBytes.h
-                        %(win32com)s/include\PyIMoniker.h       %(win32com)s/include\PyIOleWindow.h
-                        %(win32com)s/include\PyIPersist.h       %(win32com)s/include\PyIPersistFile.h
-                        %(win32com)s/include\PyIPersistStorage.h %(win32com)s/include\PyIPersistStream.h
-                        %(win32com)s/include\PyIPersistStreamInit.h %(win32com)s/include\PyIRunningObjectTable.h
-                        %(win32com)s/include\PyIStorage.h       %(win32com)s/include\PyIStream.h
-                        %(win32com)s/include\PythonCOM.h        %(win32com)s/include\PythonCOMRegister.h
-                        %(win32com)s/include\PythonCOMServer.h  %(win32com)s/include\stdafx.h
-                        %(win32com)s/include\univgw_dataconv.h
-                        %(win32com)s/include/PyICancelMethodCalls.h    %(win32com)s/include/PyIContext.h
-                        %(win32com)s/include/PyIEnumContextProps.h     %(win32com)s/include/PyIClientSecurity.h
-                        %(win32com)s/include/PyIServerSecurity.h
-                        """ % dirs).split(),
-                   libraries = "oleaut32 ole32 user32 urlmon",
-                   export_symbol_file = 'com/win32com/src/PythonCOM.def',
-                   extra_compile_args = ['-DBUILD_PYTHONCOM'],
-                   pch_header = "stdafx.h",
-                   windows_h_version = 0x500,
-                   base_address = dll_base_address,
-                   )
+   sources=("""
+        %(win32com)s/dllmain.cpp            %(win32com)s/ErrorUtils.cpp
+        %(win32com)s/MiscTypes.cpp          %(win32com)s/oleargs.cpp
+        %(win32com)s/PyComHelpers.cpp       %(win32com)s/PyFactory.cpp
+        %(win32com)s/PyGatewayBase.cpp      %(win32com)s/PyIBase.cpp
+        %(win32com)s/PyIClassFactory.cpp    %(win32com)s/PyIDispatch.cpp
+        %(win32com)s/PyIUnknown.cpp         %(win32com)s/PyRecord.cpp
+        %(win32com)s/extensions/PySTGMEDIUM.cpp %(win32com)s/PyStorage.cpp
+        %(win32com)s/PythonCOM.cpp          %(win32com)s/Register.cpp
+        %(win32com)s/stdafx.cpp             %(win32com)s/univgw.cpp
+        %(win32com)s/univgw_dataconv.cpp    %(win32com)s/extensions/PyFUNCDESC.cpp
+        %(win32com)s/extensions/PyGConnectionPoint.cpp      %(win32com)s/extensions/PyGConnectionPointContainer.cpp
+        %(win32com)s/extensions/PyGEnumVariant.cpp          %(win32com)s/extensions/PyGErrorLog.cpp
+        %(win32com)s/extensions/PyGPersist.cpp              %(win32com)s/extensions/PyGPersistPropertyBag.cpp
+        %(win32com)s/extensions/PyGPersistStorage.cpp       %(win32com)s/extensions/PyGPersistStream.cpp
+        %(win32com)s/extensions/PyGPersistStreamInit.cpp    %(win32com)s/extensions/PyGPropertyBag.cpp
+        %(win32com)s/extensions/PyGStream.cpp               %(win32com)s/extensions/PyIBindCtx.cpp
+        %(win32com)s/extensions/PyICatInformation.cpp       %(win32com)s/extensions/PyICatRegister.cpp
+        %(win32com)s/extensions/PyIConnectionPoint.cpp      %(win32com)s/extensions/PyIConnectionPointContainer.cpp
+        %(win32com)s/extensions/PyICreateTypeInfo.cpp       %(win32com)s/extensions/PyICreateTypeLib.cpp
+        %(win32com)s/extensions/PyICreateTypeLib2.cpp       %(win32com)s/extensions/PyIDataObject.cpp
+        %(win32com)s/extensions/PyIDropSource.cpp           %(win32com)s/extensions/PyIDropTarget.cpp
+        %(win32com)s/extensions/PyIEnumCATEGORYINFO.cpp     %(win32com)s/extensions/PyIEnumConnectionPoints.cpp
+        %(win32com)s/extensions/PyIEnumConnections.cpp      %(win32com)s/extensions/PyIEnumFORMATETC.cpp
+        %(win32com)s/extensions/PyIEnumGUID.cpp             %(win32com)s/extensions/PyIEnumSTATPROPSETSTG.cpp
+        %(win32com)s/extensions/PyIEnumSTATPROPSTG.cpp      %(win32com)s/extensions/PyIEnumSTATSTG.cpp
+        %(win32com)s/extensions/PyIEnumString.cpp           %(win32com)s/extensions/PyIEnumVARIANT.cpp
+        %(win32com)s/extensions/PyIErrorLog.cpp             %(win32com)s/extensions/PyIExternalConnection.cpp
+        %(win32com)s/extensions/PyIGlobalInterfaceTable.cpp %(win32com)s/extensions/PyILockBytes.cpp
+        %(win32com)s/extensions/PyIMoniker.cpp              %(win32com)s/extensions/PyIOleWindow.cpp
+        %(win32com)s/extensions/PyIPersist.cpp              %(win32com)s/extensions/PyIPersistFile.cpp
+        %(win32com)s/extensions/PyIPersistPropertyBag.cpp   %(win32com)s/extensions/PyIPersistStorage.cpp
+        %(win32com)s/extensions/PyIPersistStream.cpp        %(win32com)s/extensions/PyIPersistStreamInit.cpp
+        %(win32com)s/extensions/PyIPropertyBag.cpp          %(win32com)s/extensions/PyIPropertySetStorage.cpp
+        %(win32com)s/extensions/PyIPropertyStorage.cpp      %(win32com)s/extensions/PyIProvideClassInfo.cpp
+        %(win32com)s/extensions/PyIRunningObjectTable.cpp   %(win32com)s/extensions/PyIServiceProvider.cpp
+        %(win32com)s/extensions/PyIStorage.cpp              %(win32com)s/extensions/PyIStream.cpp
+        %(win32com)s/extensions/PyIType.cpp                 %(win32com)s/extensions/PyITypeObjects.cpp
+        %(win32com)s/extensions/PyTYPEATTR.cpp              %(win32com)s/extensions/PyVARDESC.cpp
+        %(win32com)s/extensions/PyICancelMethodCalls.cpp    %(win32com)s/extensions/PyIContext.cpp
+        %(win32com)s/extensions/PyIEnumContextProps.cpp     %(win32com)s/extensions/PyIClientSecurity.cpp
+        %(win32com)s/extensions/PyIServerSecurity.cpp
+        """ % dirs).split(),
+   depends=(r"""
+        %(win32com)s/include\propbag.h          %(win32com)s/include\PyComTypeObjects.h
+        %(win32com)s/include\PyFactory.h        %(win32com)s/include\PyGConnectionPoint.h
+        %(win32com)s/include\PyGConnectionPointContainer.h
+        %(win32com)s/include\PyGPersistStorage.h %(win32com)s/include\PyIBindCtx.h
+        %(win32com)s/include\PyICatInformation.h %(win32com)s/include\PyICatRegister.h
+        %(win32com)s/include\PyIDataObject.h    %(win32com)s/include\PyIDropSource.h
+        %(win32com)s/include\PyIDropTarget.h    %(win32com)s/include\PyIEnumConnectionPoints.h
+        %(win32com)s/include\PyIEnumConnections.h %(win32com)s/include\PyIEnumFORMATETC.h
+        %(win32com)s/include\PyIEnumGUID.h      %(win32com)s/include\PyIEnumSTATPROPSETSTG.h
+        %(win32com)s/include\PyIEnumSTATSTG.h   %(win32com)s/include\PyIEnumString.h
+        %(win32com)s/include\PyIEnumVARIANT.h   %(win32com)s/include\PyIExternalConnection.h
+        %(win32com)s/include\PyIGlobalInterfaceTable.h %(win32com)s/include\PyILockBytes.h
+        %(win32com)s/include\PyIMoniker.h       %(win32com)s/include\PyIOleWindow.h
+        %(win32com)s/include\PyIPersist.h       %(win32com)s/include\PyIPersistFile.h
+        %(win32com)s/include\PyIPersistStorage.h %(win32com)s/include\PyIPersistStream.h
+        %(win32com)s/include\PyIPersistStreamInit.h %(win32com)s/include\PyIRunningObjectTable.h
+        %(win32com)s/include\PyIStorage.h       %(win32com)s/include\PyIStream.h
+        %(win32com)s/include\PythonCOM.h        %(win32com)s/include\PythonCOMRegister.h
+        %(win32com)s/include\PythonCOMServer.h  %(win32com)s/include\stdafx.h
+        %(win32com)s/include\univgw_dataconv.h
+        %(win32com)s/include/PyICancelMethodCalls.h    %(win32com)s/include/PyIContext.h
+        %(win32com)s/include/PyIEnumContextProps.h     %(win32com)s/include/PyIClientSecurity.h
+        %(win32com)s/include/PyIServerSecurity.h
+        """ % dirs).split(),
+   libraries = "oleaut32 ole32 user32 urlmon",
+   export_symbol_file = 'com/win32com/src/PythonCOM.def',
+   extra_compile_args = ['-DBUILD_PYTHONCOM'],
+   pch_header = "stdafx.h",
+   windows_h_version = 0x500,
+   base_address = dll_base_address,
+)
 dll_base_address += 0x80000 # pythoncom is large!
 com_extensions = [pythoncom]
 com_extensions += [
@@ -423,7 +422,7 @@ com_extensions += [
     extensions.WinExt_win32com('axscript',
                     sources=("""
                         %(axscript)s/AXScript.cpp
-                        %(axscript)s/GUIDS.CPP                   %(axscript)s/PyGActiveScript.cpp
+                        %(axscript)s/guids.cpp                   %(axscript)s/PyGActiveScript.cpp
                         %(axscript)s/PyGActiveScriptError.cpp    %(axscript)s/PyGActiveScriptParse.cpp
                         %(axscript)s/PyGActiveScriptSite.cpp     %(axscript)s/PyGObjectSafety.cpp
                         %(axscript)s/PyIActiveScript.cpp         %(axscript)s/PyIActiveScriptError.cpp
