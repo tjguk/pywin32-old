@@ -12,3 +12,4 @@
 /win32/src/win32evtlog_messages.h
 /win32/src/win32service_messages.h
 /isapi/src/pyISAPI_messages.h
+/pywin32.egg-info

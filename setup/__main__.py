@@ -60,7 +60,10 @@ To build 64bit versions of this:
 import os, sys
 import re
 from tempfile import gettempdir
-from distutils.core import setup
+try:
+    from setuptools import setup
+except ImportError:
+    from distutils.core import setup
 from distutils.filelist import FileList
 
 from . import logging
