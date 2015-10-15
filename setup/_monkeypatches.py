@@ -98,7 +98,7 @@ class compiler(msvccompiler.MSVCCompiler):
         msvccompiler.MSVCCompiler.__init__(self, *args, **kwargs)
         self.can_apply_verstamp = True
 
-    def apply_verstamp(self, output_filename
+    def apply_verstamp(self, output_filename):
         from . import config
         ok = True
         if ok:
