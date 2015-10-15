@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import os, sys
 # Some nasty hacks to prevent most of our extensions using a manifest, as
 # the manifest - even without a reference to the CRT assembly - is enough

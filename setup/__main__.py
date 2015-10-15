@@ -1,8 +1,5 @@
+# -*- coding: utf-8 -*-
 from __future__ import print_function
-from . import config
-build_id = config.BUILD_ID
-# Putting buildno at the top prevents automatic __doc__ assignment, and
-# I *want* the build number at the top :)
 __doc__="""This is a distutils setup-script for the pywin32 extensions
 
 To build the pywin32 extensions, simply execute:
@@ -70,7 +67,7 @@ from . import logging
 log = logging.logger(__package__)
 from . import config, sdk, extensions, commands
 
-from distutils.filelist import FileList
+build_id = config.BUILD_ID
 
 log.debug("Building pywin32 %s", config.PYWIN32_VERSION)
 

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import os, sys
 import distutils.command.build_ext
 from distutils.dep_util import newer_group, newer

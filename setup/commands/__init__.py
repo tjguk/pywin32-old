@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from distutils.command.build_py import build_py
 from distutils.command.build_scripts import build_scripts
 

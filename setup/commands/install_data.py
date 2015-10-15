@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import distutils.command.install_data
 
 from .. import logging
