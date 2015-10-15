@@ -1,8 +1,7 @@
-/*.pyc
+**/*.pyc
+**/__pycache__
 /build
-__pycache__
-/setup/*.pyc
-/setup/commands/*.pyc
+/dist
 /com/win32comext/adsi/src/*.cpp
 /com/win32comext/mapi/src/*.cpp
 /win32/src/*_swig.cpp
